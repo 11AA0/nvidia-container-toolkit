@@ -30,12 +30,10 @@ type PlatformResolver interface {
 // PropertyExtractor provides a set of functions to query capabilities of the
 // system.
 //
-//go:generate moq -rm -out property-extractor_mock.go . PropertyExtractor
+//go:generate moq  -rm -fmt=goimports -out property-extractor_mock.go . PropertyExtractor
 type PropertyExtractor interface {
 	HasDXCore() (bool, string)
 	HasNvml() (bool, string)
 	HasTegraFiles() (bool, string)
-	// Deprecated: Use HasTegraFiles instead.
-	IsTegraSystem() (bool, string)
-	UsesOnlyNVGPUModule() (bool, string)
+	HasAnIntegratedGPU() (bool, string)
 }

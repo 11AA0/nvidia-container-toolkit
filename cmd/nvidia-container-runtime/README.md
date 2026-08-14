@@ -21,8 +21,8 @@ The `runtimes` config option allows for the low-level runtime to be specified. T
 The default value for this setting is:
 ```toml
 runtimes = [
-    "docker-runc",
     "runc",
+    "crun",
 ]
 ```
 
@@ -88,7 +88,7 @@ Alternatively the NVIDIA Container Runtime can be set as the default runtime for
 
 ## Environment variables (OCI spec)
 
-Each environment variable maps to an command-line argument for `nvidia-container-cli` from [libnvidia-container](https://github.com/NVIDIA/libnvidia-container).
+Each environment variable maps to a command-line argument for `nvidia-container-cli` from [libnvidia-container](https://github.com/NVIDIA/libnvidia-container).
 These variables are already set in our [official CUDA images](https://hub.docker.com/r/nvidia/cuda/).
 
 ### `NVIDIA_VISIBLE_DEVICES`
@@ -204,7 +204,15 @@ curl -sS http://cdimage.ubuntu.com/ubuntu-base/releases/16.04/release/ubuntu-bas
 nvidia-container-runtime spec
 sed -i 's;"sh";"nvidia-smi";' config.json
 sed -i 's;\("TERM=xterm"\);\1, "NVIDIA_VISIBLE_DEVICES=0";' config.json
+sed -i 's;"terminal":true;"terminal":false;' config.json
 
-# Run the container
-sudo nvidia-container-runtime run nvidia_smi
+# Create and start the container
+sudo nvidia-container-runtime create nvidia_smi > nvidia_smi.log 2>&1
+sudo nvidia-container-runtime start nvidia_smi
+
+# View the nvidia-smi output
+cat nvidia_smi.log
+
+# Delete the container
+sudo nvidia-container-runtime delete nvidia_smi
 ```

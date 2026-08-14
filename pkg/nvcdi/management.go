@@ -21,30 +21,29 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/NVIDIA/go-nvlib/pkg/nvlib/device"
 	"tags.cncf.io/container-device-interface/pkg/cdi"
 	"tags.cncf.io/container-device-interface/specs-go"
 
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/discover"
-	"github.com/NVIDIA/nvidia-container-toolkit/internal/edits"
-	"github.com/NVIDIA/nvidia-container-toolkit/internal/lookup/cuda"
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/nvsandboxutils"
-	"github.com/NVIDIA/nvidia-container-toolkit/pkg/nvcdi/spec"
 )
 
 type managementlib nvcdilib
 
-var _ Interface = (*managementlib)(nil)
+var _ deviceSpecGeneratorFactory = (*managementlib)(nil)
 
-// GetAllDeviceSpecs returns all device specs for use in managemnt containers.
-// A single device with the name `all` is returned.
-func (m *managementlib) GetAllDeviceSpecs() ([]specs.Device, error) {
-	devices, err := m.newManagementDeviceDiscoverer()
+func (l *managementlib) DeviceSpecGenerators(...string) (DeviceSpecGenerator, error) {
+	return l, nil
+}
+
+// GetDeviceSpecs returns the CDI device specs for a single all device.
+func (l *managementlib) GetDeviceSpecs() ([]specs.Device, error) {
+	devices, err := l.newManagementDeviceDiscoverer()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create device discoverer: %v", err)
 	}
 
-	edits, err := edits.FromDiscoverer(devices)
+	edits, err := l.editsFactory.FromDiscoverer(devices)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create edits from discoverer: %v", err)
 	}
@@ -61,57 +60,31 @@ func (m *managementlib) GetAllDeviceSpecs() ([]specs.Device, error) {
 }
 
 // GetCommonEdits returns the common edits for use in managementlib containers.
-func (m *managementlib) GetCommonEdits() (*cdi.ContainerEdits, error) {
-	if m.nvsandboxutilslib != nil {
-		if r := m.nvsandboxutilslib.Init(m.driverRoot); r != nvsandboxutils.SUCCESS {
-			m.logger.Warningf("Failed to init nvsandboxutils: %v; ignoring", r)
-			m.nvsandboxutilslib = nil
+func (l *managementlib) GetCommonEdits() (*cdi.ContainerEdits, error) {
+	if l.nvsandboxutilslib != nil {
+		if r := l.nvsandboxutilslib.Init(l.driver.Root); r != nvsandboxutils.SUCCESS {
+			l.logger.Warningf("Failed to init nvsandboxutils: %v; ignoring", r)
+			l.nvsandboxutilslib = nil
 		}
 		defer func() {
-			if m.nvsandboxutilslib == nil {
+			if l.nvsandboxutilslib == nil {
 				return
 			}
-			_ = m.nvsandboxutilslib.Shutdown()
+			_ = l.nvsandboxutilslib.Shutdown()
 		}()
 	}
 
-	version, err := m.getCudaVersion()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get CUDA version: %v", err)
-	}
-
-	driver, err := newDriverVersionDiscoverer(m.logger, m.driver, m.nvidiaCDIHookPath, m.ldconfigPath, version)
+	driver, err := (*nvcdilib)(l).newDriverVersionDiscoverer()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create driver library discoverer: %v", err)
 	}
 
-	edits, err := edits.FromDiscoverer(driver)
+	edits, err := l.editsFactory.FromDiscoverer(driver)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create edits from discoverer: %v", err)
 	}
 
 	return edits, nil
-}
-
-// getCudaVersion returns the CUDA version for use in managementlib containers.
-func (m *managementlib) getCudaVersion() (string, error) {
-	version, err := (*nvcdilib)(m).getCudaVersion()
-	if err == nil {
-		return version, nil
-	}
-
-	libCudaPaths, err := cuda.New(
-		m.driver.Libraries(),
-	).Locate(".*.*")
-	if err != nil {
-		return "", fmt.Errorf("failed to locate libcuda.so: %v", err)
-	}
-
-	libCudaPath := libCudaPaths[0]
-
-	version = strings.TrimPrefix(filepath.Base(libCudaPath), "libcuda.so.")
-
-	return version, nil
 }
 
 type managementDiscoverer struct {
@@ -120,10 +93,10 @@ type managementDiscoverer struct {
 
 // newManagementDeviceDiscoverer returns a discover.Discover that discovers device nodes for use in managementlib containers.
 // NVML is not used to query devices and all device nodes are returned.
-func (m *managementlib) newManagementDeviceDiscoverer() (discover.Discover, error) {
+func (l *managementlib) newManagementDeviceDiscoverer() (discover.Discover, error) {
 	deviceNodes := discover.NewCharDeviceDiscoverer(
-		m.logger,
-		m.devRoot,
+		l.logger,
+		l.driver.DevRoot,
 		[]string{
 			"/dev/nvidia*",
 			"/dev/nvidia-caps/nvidia-cap*",
@@ -135,10 +108,7 @@ func (m *managementlib) newManagementDeviceDiscoverer() (discover.Discover, erro
 		},
 	)
 
-	deviceFolderPermissionHooks := newDeviceFolderPermissionHookDiscoverer(
-		m.logger,
-		m.devRoot,
-		m.nvidiaCDIHookPath,
+	deviceFolderPermissionHooks := (*nvcdilib)(l).newDeviceFolderPermissionHookDiscoverer(
 		deviceNodes,
 	)
 
@@ -176,37 +146,4 @@ func (m managementDiscoverer) nodeIsBlocked(path string) bool {
 		}
 	}
 	return false
-}
-
-// GetSpec is unsppported for the managementlib specs.
-// managementlib is typically wrapped by a spec that implements GetSpec.
-func (m *managementlib) GetSpec() (spec.Interface, error) {
-	return nil, fmt.Errorf("GetSpec is not supported")
-}
-
-// GetGPUDeviceEdits is unsupported for the managementlib specs
-func (m *managementlib) GetGPUDeviceEdits(device.Device) (*cdi.ContainerEdits, error) {
-	return nil, fmt.Errorf("GetGPUDeviceEdits is not supported")
-}
-
-// GetGPUDeviceSpecs is unsupported for the managementlib specs
-func (m *managementlib) GetGPUDeviceSpecs(int, device.Device) ([]specs.Device, error) {
-	return nil, fmt.Errorf("GetGPUDeviceSpecs is not supported")
-}
-
-// GetMIGDeviceEdits is unsupported for the managementlib specs
-func (m *managementlib) GetMIGDeviceEdits(device.Device, device.MigDevice) (*cdi.ContainerEdits, error) {
-	return nil, fmt.Errorf("GetMIGDeviceEdits is not supported")
-}
-
-// GetMIGDeviceSpecs is unsupported for the managementlib specs
-func (m *managementlib) GetMIGDeviceSpecs(int, device.Device, int, device.MigDevice) ([]specs.Device, error) {
-	return nil, fmt.Errorf("GetMIGDeviceSpecs is not supported")
-}
-
-// GetDeviceSpecsByID returns the CDI device specs for the GPU(s) represented by
-// the provided identifiers, where an identifier is an index or UUID of a valid
-// GPU device.
-func (l *managementlib) GetDeviceSpecsByID(...string) ([]specs.Device, error) {
-	return nil, fmt.Errorf("GetDeviceSpecsByID is not supported")
 }

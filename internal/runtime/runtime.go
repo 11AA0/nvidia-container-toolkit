@@ -23,7 +23,7 @@ import (
 
 	"github.com/opencontainers/runtime-spec/specs-go"
 
-	"github.com/NVIDIA/nvidia-container-toolkit/internal/config"
+	"github.com/NVIDIA/nvidia-container-toolkit/api/config/v1"
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/info"
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/logger"
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/lookup/root"
@@ -76,10 +76,11 @@ func (r rt) Run(argv []string) (rerr error) {
 	driver := root.New(
 		root.WithLogger(r.logger),
 		root.WithDriverRoot(cfg.NVIDIAContainerCLIConfig.Root),
+		root.WithDevRoot(cfg.NVIDIAContainerCLIConfig.Root),
 	)
 
 	r.logger.Tracef("Command line arguments: %v", argv)
-	runtime, err := newNVIDIAContainerRuntime(r.logger, cfg, argv, driver)
+	runtime, err := newNVIDIAContainerRuntime(r.logger, driver, cfg, argv)
 	if err != nil {
 		return fmt.Errorf("failed to create NVIDIA Container Runtime: %v", err)
 	}

@@ -20,14 +20,14 @@ import (
 	"github.com/NVIDIA/nvidia-container-toolkit/cmd/nvidia-cdi-hook/commands"
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/logger"
 
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
 type hookCommand struct {
 	logger logger.Interface
 }
 
-// NewCommand constructs a hook command with the specified logger
+// NewCommand constructs CLI subcommand for handling CDI hooks.
 func NewCommand(logger logger.Interface) *cli.Command {
 	c := hookCommand{
 		logger: logger,
@@ -37,13 +37,8 @@ func NewCommand(logger logger.Interface) *cli.Command {
 
 // build
 func (m hookCommand) build() *cli.Command {
-	// Create the 'hook' command
-	hook := cli.Command{
+	return commands.ConfigureCDIHookCommand(m.logger, &cli.Command{
 		Name:  "hook",
 		Usage: "A collection of hooks that may be injected into an OCI spec",
-	}
-
-	hook.Subcommands = commands.New(m.logger)
-
-	return &hook
+	})
 }

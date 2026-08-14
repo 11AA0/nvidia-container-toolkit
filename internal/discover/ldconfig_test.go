@@ -38,11 +38,11 @@ func TestLDCacheUpdateHook(t *testing.T) {
 		mounts        []Mount
 		mountError    error
 		expectedError error
-		expectedArgs  []string
+		expectedHooks []Hook
 	}{
 		{
-			description:  "empty mounts",
-			expectedArgs: []string{"nvidia-cdi-hook", "update-ldcache"},
+			description:   "empty mounts",
+			expectedHooks: nil,
 		},
 		{
 			description:   "mount error",
@@ -65,7 +65,14 @@ func TestLDCacheUpdateHook(t *testing.T) {
 					Path: "/usr/local/lib/libbar.so",
 				},
 			},
-			expectedArgs: []string{"nvidia-cdi-hook", "update-ldcache", "--folder", "/usr/local/lib", "--folder", "/usr/local/libother"},
+			expectedHooks: []Hook{
+				{
+					Lifecycle: "createContainer",
+					Path:      testNvidiaCDIHookPath,
+					Args:      []string{"nvidia-cdi-hook", "update-ldcache", "--folder", "/usr/local/lib", "--folder", "/usr/local/libother"},
+					Env:       []string{"NVIDIA_CTK_DEBUG=false"},
+				},
+			},
 		},
 		{
 			description: "host paths are ignored",
@@ -75,29 +82,46 @@ func TestLDCacheUpdateHook(t *testing.T) {
 					Path:     "/usr/local/lib/libfoo.so",
 				},
 			},
-			expectedArgs: []string{"nvidia-cdi-hook", "update-ldcache", "--folder", "/usr/local/lib"},
+			expectedHooks: []Hook{
+				{
+					Lifecycle: "createContainer",
+					Path:      testNvidiaCDIHookPath,
+					Args:      []string{"nvidia-cdi-hook", "update-ldcache", "--folder", "/usr/local/lib"},
+					Env:       []string{"NVIDIA_CTK_DEBUG=false"},
+				},
+			},
 		},
 		{
 			description:  "explicit ldconfig path is passed",
 			ldconfigPath: testLdconfigPath,
-			expectedArgs: []string{"nvidia-cdi-hook", "update-ldcache", "--ldconfig-path", testLdconfigPath},
+			mounts: []Mount{
+				{
+					Path: "/usr/local/lib/libfoo.so",
+				},
+			},
+			expectedHooks: []Hook{
+				{
+					Lifecycle: "createContainer",
+					Path:      testNvidiaCDIHookPath,
+					Args:      []string{"nvidia-cdi-hook", "update-ldcache", "--ldconfig-path", testLdconfigPath, "--folder", "/usr/local/lib"},
+					Env:       []string{"NVIDIA_CTK_DEBUG=false"},
+				},
+			},
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
+			hookCreator := NewHookCreator(
+				WithNVIDIACDIHookPath(testNvidiaCDIHookPath),
+				WithLdconfigPath(tc.ldconfigPath),
+			)
 			mountMock := &DiscoverMock{
 				MountsFunc: func() ([]Mount, error) {
 					return tc.mounts, tc.mountError
 				},
 			}
-			expectedHook := Hook{
-				Path:      testNvidiaCDIHookPath,
-				Args:      tc.expectedArgs,
-				Lifecycle: "createContainer",
-			}
-
-			d, err := NewLDCacheUpdateHook(logger, mountMock, testNvidiaCDIHookPath, tc.ldconfigPath)
+			d, err := NewLDCacheUpdateHook(logger, mountMock, hookCreator)
 			require.NoError(t, err)
 
 			hooks, err := d.Hooks()
@@ -110,9 +134,7 @@ func TestLDCacheUpdateHook(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			require.Len(t, hooks, 1)
-
-			require.EqualValues(t, hooks[0], expectedHook)
+			require.EqualValues(t, tc.expectedHooks, hooks)
 
 			devices, err := d.Devices()
 			require.NoError(t, err)

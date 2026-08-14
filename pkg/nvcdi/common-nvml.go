@@ -25,9 +25,34 @@ import (
 // newCommonNVMLDiscoverer returns a discoverer for entities that are not associated with a specific CDI device.
 // This includes driver libraries and meta devices, for example.
 func (l *nvmllib) newCommonNVMLDiscoverer() (discover.Discover, error) {
-	metaDevices := discover.NewCharDeviceDiscoverer(
+	metaDevices := l.controlDeviceNodeDiscoverer()
+
+	graphicsMounts, err := discover.NewGraphicsMountsDiscoverer(l.logger, l.driver, l.hookCreator)
+	if err != nil {
+		l.logger.Warningf("failed to create discoverer for graphics mounts: %v", err)
+	}
+
+	driverFiles, err := l.NewDriverDiscoverer()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create discoverer for driver files: %v", err)
+	}
+
+	applicationProfileHook := discover.NewApplicationProfileHookDiscoverer(l.hookCreator)
+
+	d := discover.Merge(
+		metaDevices,
+		graphicsMounts,
+		driverFiles,
+		applicationProfileHook,
+	)
+
+	return d, nil
+}
+
+func (l *nvmllib) controlDeviceNodeDiscoverer() discover.Discover {
+	return discover.NewCharDeviceDiscoverer(
 		l.logger,
-		l.devRoot,
+		l.driver.DevRoot,
 		[]string{
 			"/dev/nvidia-modeset",
 			"/dev/nvidia-uvm-tools",
@@ -35,22 +60,4 @@ func (l *nvmllib) newCommonNVMLDiscoverer() (discover.Discover, error) {
 			"/dev/nvidiactl",
 		},
 	)
-
-	graphicsMounts, err := discover.NewGraphicsMountsDiscoverer(l.logger, l.driver, l.nvidiaCDIHookPath)
-	if err != nil {
-		l.logger.Warningf("failed to create discoverer for graphics mounts: %v", err)
-	}
-
-	driverFiles, err := NewDriverDiscoverer(l.logger, l.driver, l.nvidiaCDIHookPath, l.ldconfigPath, l.nvmllib)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create discoverer for driver files: %v", err)
-	}
-
-	d := discover.Merge(
-		metaDevices,
-		graphicsMounts,
-		driverFiles,
-	)
-
-	return d, nil
 }

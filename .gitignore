@@ -3,11 +3,10 @@
 *.swp
 *.swo
 /coverage.out*
-/test/output/
-/nvidia-container-runtime
-/nvidia-container-runtime.*
-/nvidia-container-runtime-hook
-/nvidia-container-toolkit
-/nvidia-ctk
+/tests/output/
+/nvidia-*
 /shared-*
 /release-*
+/bin
+/toolkit-test
+/.licenses-cache

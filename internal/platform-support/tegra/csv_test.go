@@ -24,17 +24,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/discover"
-	"github.com/NVIDIA/nvidia-container-toolkit/internal/logger"
-	"github.com/NVIDIA/nvidia-container-toolkit/internal/lookup"
-
-	"github.com/NVIDIA/nvidia-container-toolkit/internal/platform-support/tegra/csv"
+	"github.com/NVIDIA/nvidia-container-toolkit/internal/lookup/root"
+	"github.com/NVIDIA/nvidia-container-toolkit/pkg/lookup"
 )
 
 func TestDiscovererFromCSVFiles(t *testing.T) {
 	logger, _ := testlog.NewNullLogger()
 	testCases := []struct {
 		description         string
-		moutSpecs           map[csv.MountSpecType][]string
+		moutSpecs           MountSpecPathsByType
 		ignorePatterns      []string
 		symlinkLocator      lookup.Locator
 		symlinkChainLocator lookup.Locator
@@ -49,7 +47,7 @@ func TestDiscovererFromCSVFiles(t *testing.T) {
 			// TODO: This current resolves to two mounts that are the same.
 			// These are deduplicated at a later stage. We could consider deduplicating earlier in the pipeline.
 			description: "symlink is resolved to target; mounts and symlink are created",
-			moutSpecs: map[csv.MountSpecType][]string{
+			moutSpecs: MountSpecPathsByType{
 				"lib": {"/usr/lib/aarch64-linux-gnu/tegra/libv4l2_nvargus.so"},
 				"sym": {"/usr/lib/aarch64-linux-gnu/libv4l/plugins/nv/libv4l2_nvargus.so"},
 			},
@@ -79,12 +77,12 @@ func TestDiscovererFromCSVFiles(t *testing.T) {
 				{
 					Path:     "/usr/lib/aarch64-linux-gnu/tegra/libv4l2_nvargus.so",
 					HostPath: "/usr/lib/aarch64-linux-gnu/tegra/libv4l2_nvargus.so",
-					Options:  []string{"ro", "nosuid", "nodev", "bind"},
+					Options:  []string{"ro", "nosuid", "nodev", "rbind", "rprivate"},
 				},
 				{
 					Path:     "/usr/lib/aarch64-linux-gnu/tegra/libv4l2_nvargus.so",
 					HostPath: "/usr/lib/aarch64-linux-gnu/tegra/libv4l2_nvargus.so",
-					Options:  []string{"ro", "nosuid", "nodev", "bind"},
+					Options:  []string{"ro", "nosuid", "nodev", "rbind", "rprivate"},
 				},
 			},
 			expectedHooks: []discover.Hook{
@@ -97,6 +95,7 @@ func TestDiscovererFromCSVFiles(t *testing.T) {
 						"--link",
 						"/usr/lib/aarch64-linux-gnu/tegra/libv4l2_nvargus.so::/usr/lib/aarch64-linux-gnu/libv4l/plugins/nv/libv4l2_nvargus.so",
 					},
+					Env: []string{"NVIDIA_CTK_DEBUG=false"},
 				},
 			},
 		},
@@ -104,7 +103,7 @@ func TestDiscovererFromCSVFiles(t *testing.T) {
 			// TODO: This current resolves to two mounts that are the same.
 			// These are deduplicated at a later stage. We could consider deduplicating earlier in the pipeline.
 			description: "single glob filter does not remove symlink mounts",
-			moutSpecs: map[csv.MountSpecType][]string{
+			moutSpecs: MountSpecPathsByType{
 				"lib": {"/usr/lib/aarch64-linux-gnu/tegra/libv4l2_nvargus.so"},
 				"sym": {"/usr/lib/aarch64-linux-gnu/libv4l/plugins/nv/libv4l2_nvargus.so"},
 			},
@@ -135,12 +134,12 @@ func TestDiscovererFromCSVFiles(t *testing.T) {
 				{
 					Path:     "/usr/lib/aarch64-linux-gnu/tegra/libv4l2_nvargus.so",
 					HostPath: "/usr/lib/aarch64-linux-gnu/tegra/libv4l2_nvargus.so",
-					Options:  []string{"ro", "nosuid", "nodev", "bind"},
+					Options:  []string{"ro", "nosuid", "nodev", "rbind", "rprivate"},
 				},
 				{
 					Path:     "/usr/lib/aarch64-linux-gnu/tegra/libv4l2_nvargus.so",
 					HostPath: "/usr/lib/aarch64-linux-gnu/tegra/libv4l2_nvargus.so",
-					Options:  []string{"ro", "nosuid", "nodev", "bind"},
+					Options:  []string{"ro", "nosuid", "nodev", "rbind", "rprivate"},
 				},
 			},
 			expectedHooks: []discover.Hook{
@@ -153,12 +152,13 @@ func TestDiscovererFromCSVFiles(t *testing.T) {
 						"--link",
 						"/usr/lib/aarch64-linux-gnu/tegra/libv4l2_nvargus.so::/usr/lib/aarch64-linux-gnu/libv4l/plugins/nv/libv4l2_nvargus.so",
 					},
+					Env: []string{"NVIDIA_CTK_DEBUG=false"},
 				},
 			},
 		},
 		{
 			description: "** filter removes symlink mounts",
-			moutSpecs: map[csv.MountSpecType][]string{
+			moutSpecs: MountSpecPathsByType{
 				"lib": {"/usr/lib/aarch64-linux-gnu/tegra/libv4l2_nvargus.so"},
 				"sym": {"/usr/lib/aarch64-linux-gnu/libv4l/plugins/nv/libv4l2_nvargus.so"},
 			},
@@ -175,28 +175,30 @@ func TestDiscovererFromCSVFiles(t *testing.T) {
 				{
 					Path:     "/usr/lib/aarch64-linux-gnu/tegra/libv4l2_nvargus.so",
 					HostPath: "/usr/lib/aarch64-linux-gnu/tegra/libv4l2_nvargus.so",
-					Options:  []string{"ro", "nosuid", "nodev", "bind"},
+					Options:  []string{"ro", "nosuid", "nodev", "rbind", "rprivate"},
 				},
 			},
 		},
 	}
 
+	hookCreator := discover.NewHookCreator()
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
-			defer setGetTargetsFromCSVFiles(tc.moutSpecs)()
-
-			o := tegraOptions{
+			o := options{
 				logger:              logger,
-				nvidiaCDIHookPath:   "/usr/bin/nvidia-cdi-hook",
-				csvFiles:            []string{"dummy"},
-				ignorePatterns:      tc.ignorePatterns,
+				driver:              root.New(),
+				hookCreator:         hookCreator,
 				symlinkLocator:      tc.symlinkLocator,
 				symlinkChainLocator: tc.symlinkChainLocator,
 				resolveSymlink:      tc.symlinkResolver,
+
+				mountSpecs: Transform(
+					tc.moutSpecs,
+					IgnoreSymlinkMountSpecsByPattern(tc.ignorePatterns...),
+				),
 			}
 
-			d, err := o.newDiscovererFromCSVFiles()
-			require.ErrorIs(t, err, tc.expectedError)
+			d := o.newDiscovererFromMountSpecs(o.mountSpecs.MountSpecPathsByType())
 
 			hooks, err := d.Hooks()
 			require.ErrorIs(t, err, tc.expectedHooksError)
@@ -207,16 +209,5 @@ func TestDiscovererFromCSVFiles(t *testing.T) {
 			require.EqualValues(t, tc.expectedMounts, mounts)
 
 		})
-	}
-}
-
-func setGetTargetsFromCSVFiles(ovverride map[csv.MountSpecType][]string) func() {
-	original := getTargetsFromCSVFiles
-	getTargetsFromCSVFiles = func(logger logger.Interface, files []string) map[csv.MountSpecType][]string {
-		return ovverride
-	}
-
-	return func() {
-		getTargetsFromCSVFiles = original
 	}
 }

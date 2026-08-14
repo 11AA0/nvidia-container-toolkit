@@ -17,14 +17,20 @@
 package discover
 
 import (
+	"path/filepath"
+	"strings"
 	"testing"
 
 	testlog "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
+	"github.com/NVIDIA/nvidia-container-toolkit/internal/devices"
+	"github.com/NVIDIA/nvidia-container-toolkit/internal/test"
 )
 
 func TestGraphicsLibrariesDiscoverer(t *testing.T) {
 	logger, _ := testlog.NewNullLogger()
+	hookCreator := NewHookCreator()
 
 	testCases := []struct {
 		description    string
@@ -70,6 +76,7 @@ func TestGraphicsLibrariesDiscoverer(t *testing.T) {
 					Args: []string{"nvidia-cdi-hook", "create-symlinks",
 						"--link", "../libnvidia-allocator.so.1::/usr/lib64/gbm/nvidia-drm_gbm.so",
 					},
+					Env: []string{"NVIDIA_CTK_DEBUG=false"},
 				},
 			},
 		},
@@ -97,8 +104,28 @@ func TestGraphicsLibrariesDiscoverer(t *testing.T) {
 					Args: []string{"nvidia-cdi-hook", "create-symlinks",
 						"--link", "libnvidia-vulkan-producer.so.123.45.67::/usr/lib64/libnvidia-vulkan-producer.so",
 					},
+					Env: []string{"NVIDIA_CTK_DEBUG=false"},
 				},
 			},
+		},
+		{
+			description: "libnvidia-allocator not filtered out when version does not equal driver version",
+			libraries: &DiscoverMock{
+				MountsFunc: func() ([]Mount, error) {
+					mounts := []Mount{
+						{
+							Path: "/usr/lib64/libnvidia-allocator.so.999.99.99",
+						},
+					}
+					return mounts, nil
+				},
+			},
+			expectedMounts: []Mount{
+				{
+					Path: "/usr/lib64/libnvidia-allocator.so.999.99.99",
+				},
+			},
+			expectedHooks: nil,
 		},
 		{
 			description: "libnvidia-allocator and libnvidia-vulkan-producer discovered",
@@ -128,6 +155,7 @@ func TestGraphicsLibrariesDiscoverer(t *testing.T) {
 						"--link", "../libnvidia-allocator.so.1::/usr/lib64/gbm/nvidia-drm_gbm.so",
 						"--link", "libnvidia-vulkan-producer.so.123.45.67::/usr/lib64/libnvidia-vulkan-producer.so",
 					},
+					Env: []string{"NVIDIA_CTK_DEBUG=false"},
 				},
 			},
 		},
@@ -136,9 +164,10 @@ func TestGraphicsLibrariesDiscoverer(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
 			d := &graphicsDriverLibraries{
-				Discover:          tc.libraries,
-				logger:            logger,
-				nvidiaCDIHookPath: "/usr/bin/nvidia-cdi-hook",
+				Discover:      tc.libraries,
+				logger:        logger,
+				hookCreator:   hookCreator,
+				driverVersion: "123.45.67",
 			}
 
 			devices, err := d.Devices()
@@ -157,5 +186,128 @@ func TestGraphicsLibrariesDiscoverer(t *testing.T) {
 			require.Len(t, tc.libraries.calls.Mounts, 2)
 			require.Len(t, tc.libraries.calls.Hooks, 0)
 		})
+	}
+}
+
+func TestDrmDevicesByPath(t *testing.T) {
+	defer devices.SetAllForTest()()
+	moduleRoot, err := test.GetModuleRoot()
+	require.NoError(t, err)
+	devRoot := filepath.Join(moduleRoot, "testdata", "lookup", "rootfs-drm")
+
+	logger, _ := testlog.NewNullLogger()
+	hookCreator := NewHookCreator()
+
+	testCases := []struct {
+		description   string
+		devices       Discover
+		devRoot       string
+		expectedError error
+		expectedHooks []Hook
+	}{
+		{
+			description: "no devices",
+			devices:     &DiscoverMock{},
+		},
+		{
+			description: "single device",
+			devices: &DiscoverMock{
+				DevicesFunc: func() ([]Device, error) {
+					devices := []Device{
+						{
+							HostPath: "/dev/dri/card0",
+						},
+						{
+							HostPath: "/dev/dri/renderD128",
+						},
+					}
+					return devices, nil
+				},
+			},
+			expectedHooks: []Hook{
+				{
+					Lifecycle: "createContainer",
+					Path:      "/usr/bin/nvidia-cdi-hook",
+					Args: []string{
+						"nvidia-cdi-hook", "create-symlinks",
+						"--link", "../card0::{{ .DevRoot }}/dev/dri/by-path/pci-0000:07:00.0-card",
+						"--link", "../renderD128::{{ .DevRoot }}/dev/dri/by-path/pci-0000:07:00.0-render",
+					},
+					Env: []string{"NVIDIA_CTK_DEBUG=false"},
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+
+		for _, h := range tc.expectedHooks {
+			for i := range h.Args {
+				h.Args[i] = strings.ReplaceAll(h.Args[i], "{{ .DevRoot }}", devRoot)
+			}
+		}
+
+		t.Run(tc.description, func(t *testing.T) {
+			d := newCreateDRMByPathSymlinks(logger, tc.devices, devRoot, hookCreator)
+
+			devices, err := d.Devices()
+			require.NoError(t, err)
+			require.Empty(t, devices)
+
+			envVars, err := d.EnvVars()
+			require.NoError(t, err)
+			require.Empty(t, envVars)
+
+			mounts, err := d.Mounts()
+			require.NoError(t, err)
+			require.Empty(t, mounts)
+
+			hooks, err := d.Hooks()
+			require.EqualValues(t, tc.expectedError, err)
+
+			require.EqualValues(t, tc.expectedHooks, hooks)
+		})
+	}
+}
+
+func TestIsDriverLibrary(t *testing.T) {
+	testCases := []struct {
+		description    string
+		filename       string
+		libraryName    string
+		driverVersion  string
+		expectedResult bool
+	}{
+		{
+			description:    "driver library file matched",
+			libraryName:    "libnvidia-vulkan-producer.so",
+			filename:       "libnvidia-vulkan-producer.so.123.45.67",
+			driverVersion:  "123.45.67",
+			expectedResult: true,
+		},
+		{
+			description:    "driver library file matched with extraneous \".\"",
+			libraryName:    "libnvidia-vulkan-producer.so.",
+			filename:       "libnvidia-vulkan-producer.so.123.45.67",
+			driverVersion:  "123.45.67",
+			expectedResult: true,
+		},
+		{
+			description:    "driver library file not matched due to mismatching driver version",
+			libraryName:    "libnvidia-vulkan-producer.so",
+			filename:       "libnvidia-vulkan-producer.so.123.45.67",
+			driverVersion:  "999.99.99",
+			expectedResult: false,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			gdl := graphicsDriverLibraries{
+				driverVersion: tc.driverVersion,
+			}
+			result := gdl.isDriverLibrary(tc.filename, tc.libraryName)
+			require.Equal(t, tc.expectedResult, result)
+		})
+
 	}
 }

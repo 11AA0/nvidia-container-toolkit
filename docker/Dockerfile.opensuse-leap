@@ -5,7 +5,8 @@ RUN zypper install -y \
     ca-certificates \
     wget \
     git \
-    rpm-build && \
+    rpm-build \
+    systemd-rpm-macros && \
     rm -rf /var/cache/zypp/*
 
 ARG GOLANG_VERSION=0.0.0
@@ -18,7 +19,7 @@ RUN set -eux; \
         aarch64 | arm64) ARCH='arm64' ;; \
         *) echo "unsupported architecture"; exit 1 ;; \
     esac; \
-    wget -nv -O - https://storage.googleapis.com/golang/go${GOLANG_VERSION}.linux-${ARCH}.tar.gz \
+    wget -nv -O - https://go.dev/dl/go${GOLANG_VERSION}.linux-${ARCH}.tar.gz \
     | tar -C /usr/local -xz
 
 ENV GOPATH /go
@@ -46,9 +47,7 @@ RUN make PREFIX=${DIST_DIR} cmds
 
 WORKDIR $DIST_DIR/..
 COPY packaging/rpm .
-
-ARG LIBNVIDIA_CONTAINER_TOOLS_VERSION
-ENV LIBNVIDIA_CONTAINER_TOOLS_VERSION ${LIBNVIDIA_CONTAINER_TOOLS_VERSION}
+COPY deployments/systemd/ ${DIST_DIR}/
 
 CMD arch=$(uname -m) && \
     rpmbuild --clean --target=$arch -bb \
@@ -56,7 +55,6 @@ CMD arch=$(uname -m) && \
              -D "release_date $(date +'%a %b %d %Y')" \
              -D "git_commit ${GIT_COMMIT}" \
              -D "version ${PKG_VERS}" \
-             -D "libnvidia_container_tools_version ${LIBNVIDIA_CONTAINER_TOOLS_VERSION}" \
              -D "release ${PKG_REV}" \
              SPECS/nvidia-container-toolkit.spec && \
     mv RPMS/$arch/*.rpm /dist

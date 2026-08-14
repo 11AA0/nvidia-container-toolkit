@@ -22,7 +22,7 @@ import (
 	"strings"
 
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/logger"
-	"github.com/NVIDIA/nvidia-container-toolkit/internal/lookup"
+	"github.com/NVIDIA/nvidia-container-toolkit/pkg/lookup"
 )
 
 // mountsToContainerPath defines a Discoverer for a required set of mounts.
@@ -71,7 +71,8 @@ func (d *mountsToContainerPath) Mounts() ([]Mount, error) {
 				"ro",
 				"nosuid",
 				"nodev",
-				"bind",
+				"rbind",
+				"rprivate",
 			},
 		}
 		mounts = append(mounts, mount)

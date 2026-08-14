@@ -9,6 +9,10 @@ type nvmlDevice struct {
 	Handle *_Ctype_struct_nvmlDevice_st
 }
 
+type nvmlGpuInstance struct {
+	Handle *_Ctype_struct_nvmlGpuInstance_st
+}
+
 type PciInfoExt_v1 struct {
 	Version        uint32
 	Domain         uint32
@@ -132,6 +136,32 @@ type C2cModeInfo_v1 struct {
 	IsC2cEnabled uint32
 }
 
+type DeviceAddressingMode_v1 struct {
+	Version uint32
+	Value   uint32
+}
+
+type DeviceAddressingMode struct {
+	Version uint32
+	Value   uint32
+}
+
+type RepairStatus_v1 struct {
+	Version               uint32
+	BChannelRepairPending uint32
+	BTpcRepairPending     uint32
+}
+
+type RepairStatus struct {
+	Version               uint32
+	BChannelRepairPending uint32
+	BTpcRepairPending     uint32
+}
+
+type UnrepairableMemoryStatus_v1 struct {
+	BUnrepairableMemory uint32
+}
+
 type RowRemapperHistogramValues struct {
 	Max     uint32
 	High    uint32
@@ -182,6 +212,72 @@ type GpuThermalSettings struct {
 	Sensor [3]GpuThermalSettingsSensor
 }
 
+type CoolerInfo_v1 struct {
+	Version    uint32
+	Index      uint32
+	SignalType uint32
+	Target     uint32
+}
+
+type CoolerInfo struct {
+	Version    uint32
+	Index      uint32
+	SignalType uint32
+	Target     uint32
+}
+
+const sizeofUUIDValue = unsafe.Sizeof([41]byte{})
+
+type UUIDValue [sizeofUUIDValue]byte
+
+type UUID_v1 struct {
+	Version   uint32
+	Type      uint32
+	Value     [41]byte
+	Pad_cgo_0 [3]byte
+}
+
+type UUID struct {
+	Version   uint32
+	Type      uint32
+	Value     [41]byte
+	Pad_cgo_0 [3]byte
+}
+
+type Pdi_v1 struct {
+	Version uint32
+	Value   uint64
+}
+
+type Pdi struct {
+	Version uint32
+	Value   uint64
+}
+
+type BBXTimeData_v1 struct {
+	TimeRun uint32
+}
+
+type DramEncryptionInfo_v1 struct {
+	Version         uint32
+	EncryptionState uint32
+}
+
+type DramEncryptionInfo struct {
+	Version         uint32
+	EncryptionState uint32
+}
+
+type MarginTemperature_v1 struct {
+	Version           uint32
+	MarginTemperature int32
+}
+
+type MarginTemperature struct {
+	Version           uint32
+	MarginTemperature int32
+}
+
 type ClkMonFaultInfo struct {
 	ClkApiDomain       uint32
 	ClkDomainFaultMask uint32
@@ -191,6 +287,235 @@ type ClkMonStatus struct {
 	BGlobalStatus  uint32
 	ClkMonListSize uint32
 	ClkMonList     [32]ClkMonFaultInfo
+}
+
+type ClockOffset_v1 struct {
+	Version           uint32
+	Type              uint32
+	Pstate            uint32
+	ClockOffsetMHz    int32
+	MinClockOffsetMHz int32
+	MaxClockOffsetMHz int32
+}
+
+type ClockOffset struct {
+	Version           uint32
+	Type              uint32
+	Pstate            uint32
+	ClockOffsetMHz    int32
+	MinClockOffsetMHz int32
+	MaxClockOffsetMHz int32
+}
+
+type FanSpeedInfo_v1 struct {
+	Version uint32
+	Fan     uint32
+	Speed   uint32
+}
+
+type FanSpeedInfo struct {
+	Version uint32
+	Fan     uint32
+	Speed   uint32
+}
+
+type DevicePerfModes_v1 struct {
+	Version uint32
+	Str     [2048]int8
+}
+
+type DevicePerfModes struct {
+	Version uint32
+	Str     [2048]int8
+}
+
+type DeviceCurrentClockFreqs_v1 struct {
+	Version uint32
+	Str     [2048]int8
+}
+
+type DeviceCurrentClockFreqs struct {
+	Version uint32
+	Str     [2048]int8
+}
+
+type DevicePowerMizerModes_v1 struct {
+	CurrentMode              uint32
+	Mode                     uint32
+	SupportedPowerMizerModes uint32
+}
+
+type ProcessUtilizationSample struct {
+	Pid       uint32
+	TimeStamp uint64
+	SmUtil    uint32
+	MemUtil   uint32
+	EncUtil   uint32
+	DecUtil   uint32
+}
+
+type ProcessUtilizationInfo_v1 struct {
+	TimeStamp uint64
+	Pid       uint32
+	SmUtil    uint32
+	MemUtil   uint32
+	EncUtil   uint32
+	DecUtil   uint32
+	JpgUtil   uint32
+	OfaUtil   uint32
+	Pad_cgo_0 [4]byte
+}
+
+type ProcessesUtilizationInfo_v1 struct {
+	Version             uint32
+	ProcessSamplesCount uint32
+	LastSeenTimeStamp   uint64
+	ProcUtilArray       *ProcessUtilizationInfo_v1
+}
+
+type ProcessesUtilizationInfo struct {
+	Version             uint32
+	ProcessSamplesCount uint32
+	LastSeenTimeStamp   uint64
+	ProcUtilArray       *ProcessUtilizationInfo_v1
+}
+
+type EccSramErrorStatus_v1 struct {
+	Version                 uint32
+	AggregateUncParity      uint64
+	AggregateUncSecDed      uint64
+	AggregateCor            uint64
+	VolatileUncParity       uint64
+	VolatileUncSecDed       uint64
+	VolatileCor             uint64
+	AggregateUncBucketL2    uint64
+	AggregateUncBucketSm    uint64
+	AggregateUncBucketPcie  uint64
+	AggregateUncBucketMcu   uint64
+	AggregateUncBucketOther uint64
+	BThresholdExceeded      uint32
+	Pad_cgo_0               [4]byte
+}
+
+type EccSramErrorStatus struct {
+	Version                 uint32
+	AggregateUncParity      uint64
+	AggregateUncSecDed      uint64
+	AggregateCor            uint64
+	VolatileUncParity       uint64
+	VolatileUncSecDed       uint64
+	VolatileCor             uint64
+	AggregateUncBucketL2    uint64
+	AggregateUncBucketSm    uint64
+	AggregateUncBucketPcie  uint64
+	AggregateUncBucketMcu   uint64
+	AggregateUncBucketOther uint64
+	BThresholdExceeded      uint32
+	Pad_cgo_0               [4]byte
+}
+
+type PlatformInfo_v1 struct {
+	Version                   uint32
+	IbGuid                    [16]uint8
+	RackGuid                  [16]uint8
+	ChassisPhysicalSlotNumber uint8
+	ComputeSlotIndex          uint8
+	NodeIndex                 uint8
+	PeerType                  uint8
+	ModuleId                  uint8
+	Pad_cgo_0                 [3]byte
+}
+
+type PlatformInfo_v2 struct {
+	Version             uint32
+	IbGuid              [16]uint8
+	ChassisSerialNumber [16]uint8
+	SlotNumber          uint8
+	TrayIndex           uint8
+	HostId              uint8
+	PeerType            uint8
+	ModuleId            uint8
+	Pad_cgo_0           [3]byte
+}
+
+type PlatformInfo struct {
+	Version             uint32
+	IbGuid              [16]uint8
+	ChassisSerialNumber [16]uint8
+	SlotNumber          uint8
+	TrayIndex           uint8
+	HostId              uint8
+	PeerType            uint8
+	ModuleId            uint8
+	Pad_cgo_0           [3]byte
+}
+
+type Hostname_v1 struct {
+	Value [64]int8
+}
+
+type EccSramUniqueUncorrectedErrorEntry_v1 struct {
+	Unit        uint32
+	Location    uint32
+	Sublocation uint32
+	Extlocation uint32
+	Address     uint32
+	IsParity    uint32
+	Count       uint32
+}
+
+type EccSramUniqueUncorrectedErrorCounts_v1 struct {
+	Version    uint32
+	EntryCount uint32
+	Entries    *EccSramUniqueUncorrectedErrorEntry_v1
+}
+
+type EccSramUniqueUncorrectedErrorCounts struct {
+	Version    uint32
+	EntryCount uint32
+	Entries    *EccSramUniqueUncorrectedErrorEntry_v1
+}
+
+type RemappedRowsInfo_v2 struct {
+	CorrActiveRemaps   uint32
+	CorrInactiveRemaps uint32
+	UncActiveRemaps    uint32
+	UncInactiveRemaps  uint32
+	BPending           uint32
+	BFailureOccurred   uint32
+}
+
+type RusdSettings_v1 struct {
+	Version  uint32
+	PollMask uint64
+}
+
+type DeviceArchitecture uint32
+
+type BusType uint32
+
+type FanControlPolicy uint32
+
+type PowerSource uint32
+
+type GpuDynamicPstatesInfoUtilization struct {
+	BIsPresent   uint32
+	Percentage   uint32
+	IncThreshold uint32
+	DecThreshold uint32
+}
+
+type GpuDynamicPstatesInfo struct {
+	Flags       uint32
+	Utilization [8]GpuDynamicPstatesInfoUtilization
+}
+
+type PowerScopeType byte
+
+type PowerValue_v2 struct {
+	Version      uint32
+	PowerScope   uint8
+	PowerValueMw uint32
 }
 
 type nvmlVgpuTypeId uint32
@@ -224,11 +549,32 @@ type VgpuPlacementList_v1 struct {
 	PlacementIds  *uint32
 }
 
+type VgpuPlacementList_v2 struct {
+	Version       uint32
+	PlacementSize uint32
+	Count         uint32
+	PlacementIds  *uint32
+	Mode          uint32
+	Pad_cgo_0     [4]byte
+}
+
 type VgpuPlacementList struct {
 	Version       uint32
 	PlacementSize uint32
 	Count         uint32
 	PlacementIds  *uint32
+	Mode          uint32
+	Pad_cgo_0     [4]byte
+}
+
+type VgpuTypeBar1Info_v1 struct {
+	Version  uint32
+	Bar1Size uint64
+}
+
+type VgpuTypeBar1Info struct {
+	Version  uint32
+	Bar1Size uint64
 }
 
 type VgpuInstanceUtilizationSample struct {
@@ -304,6 +650,16 @@ type VgpuProcessesUtilizationInfo struct {
 	VgpuProcessCount  uint32
 	LastSeenTimeStamp uint64
 	VgpuProcUtilArray *VgpuProcessUtilizationInfo_v1
+}
+
+type VgpuRuntimeState_v1 struct {
+	Version uint32
+	Size    uint64
+}
+
+type VgpuRuntimeState struct {
+	Version uint32
+	Size    uint64
 }
 
 type VgpuSchedulerParamsVgpuSchedDataWithARR struct {
@@ -390,41 +746,6 @@ type VgpuLicenseInfo struct {
 	CurrentState  uint32
 }
 
-type ProcessUtilizationSample struct {
-	Pid       uint32
-	TimeStamp uint64
-	SmUtil    uint32
-	MemUtil   uint32
-	EncUtil   uint32
-	DecUtil   uint32
-}
-
-type ProcessUtilizationInfo_v1 struct {
-	TimeStamp uint64
-	Pid       uint32
-	SmUtil    uint32
-	MemUtil   uint32
-	EncUtil   uint32
-	DecUtil   uint32
-	JpgUtil   uint32
-	OfaUtil   uint32
-	Pad_cgo_0 [4]byte
-}
-
-type ProcessesUtilizationInfo_v1 struct {
-	Version             uint32
-	ProcessSamplesCount uint32
-	LastSeenTimeStamp   uint64
-	ProcUtilArray       *ProcessUtilizationInfo_v1
-}
-
-type ProcessesUtilizationInfo struct {
-	Version             uint32
-	ProcessSamplesCount uint32
-	LastSeenTimeStamp   uint64
-	ProcUtilArray       *ProcessUtilizationInfo_v1
-}
-
 type GridLicenseExpiry struct {
 	Year      uint32
 	Month     uint16
@@ -451,58 +772,148 @@ type GridLicensableFeatures struct {
 	GridLicensableFeatures  [3]GridLicensableFeature
 }
 
-type EccSramErrorStatus_v1 struct {
-	Version                 uint32
-	AggregateUncParity      uint64
-	AggregateUncSecDed      uint64
-	AggregateCor            uint64
-	VolatileUncParity       uint64
-	VolatileUncSecDed       uint64
-	VolatileCor             uint64
-	AggregateUncBucketL2    uint64
-	AggregateUncBucketSm    uint64
-	AggregateUncBucketPcie  uint64
-	AggregateUncBucketMcu   uint64
-	AggregateUncBucketOther uint64
-	BThresholdExceeded      uint32
-	Pad_cgo_0               [4]byte
+type VgpuTypeIdInfo_v1 struct {
+	Version     uint32
+	VgpuCount   uint32
+	VgpuTypeIds *uint32
 }
 
-type EccSramErrorStatus struct {
-	Version                 uint32
-	AggregateUncParity      uint64
-	AggregateUncSecDed      uint64
-	AggregateCor            uint64
-	VolatileUncParity       uint64
-	VolatileUncSecDed       uint64
-	VolatileCor             uint64
-	AggregateUncBucketL2    uint64
-	AggregateUncBucketSm    uint64
-	AggregateUncBucketPcie  uint64
-	AggregateUncBucketMcu   uint64
-	AggregateUncBucketOther uint64
-	BThresholdExceeded      uint32
-	Pad_cgo_0               [4]byte
+type VgpuTypeIdInfo struct {
+	Version     uint32
+	VgpuCount   uint32
+	VgpuTypeIds *uint32
 }
 
-type DeviceArchitecture uint32
-
-type BusType uint32
-
-type FanControlPolicy uint32
-
-type PowerSource uint32
-
-type GpuDynamicPstatesInfoUtilization struct {
-	BIsPresent   uint32
-	Percentage   uint32
-	IncThreshold uint32
-	DecThreshold uint32
+type VgpuTypeMaxInstance_v1 struct {
+	Version          uint32
+	VgpuTypeId       uint32
+	MaxInstancePerGI uint32
 }
 
-type GpuDynamicPstatesInfo struct {
-	Flags       uint32
-	Utilization [8]GpuDynamicPstatesInfoUtilization
+type VgpuTypeMaxInstance struct {
+	Version          uint32
+	VgpuTypeId       uint32
+	MaxInstancePerGI uint32
+}
+
+type ActiveVgpuInstanceInfo_v1 struct {
+	Version       uint32
+	VgpuCount     uint32
+	VgpuInstances *uint32
+}
+
+type ActiveVgpuInstanceInfo struct {
+	Version       uint32
+	VgpuCount     uint32
+	VgpuInstances *uint32
+}
+
+type VgpuSchedulerState_v1 struct {
+	Version         uint32
+	EngineId        uint32
+	SchedulerPolicy uint32
+	EnableARRMode   uint32
+	SchedulerParams [8]byte
+}
+
+type VgpuSchedulerState struct {
+	Version         uint32
+	EngineId        uint32
+	SchedulerPolicy uint32
+	EnableARRMode   uint32
+	SchedulerParams [8]byte
+}
+
+type VgpuSchedulerStateInfo_v1 struct {
+	Version         uint32
+	EngineId        uint32
+	SchedulerPolicy uint32
+	ArrMode         uint32
+	SchedulerParams [8]byte
+}
+
+type VgpuSchedulerStateInfo struct {
+	Version         uint32
+	EngineId        uint32
+	SchedulerPolicy uint32
+	ArrMode         uint32
+	SchedulerParams [8]byte
+}
+
+type VgpuSchedulerLogInfo_v1 struct {
+	Version         uint32
+	EngineId        uint32
+	SchedulerPolicy uint32
+	ArrMode         uint32
+	SchedulerParams [8]byte
+	EntriesCount    uint32
+	LogEntries      [200]VgpuSchedulerLogEntry
+}
+
+type VgpuSchedulerLogInfo struct {
+	Version         uint32
+	EngineId        uint32
+	SchedulerPolicy uint32
+	ArrMode         uint32
+	SchedulerParams [8]byte
+	EntriesCount    uint32
+	LogEntries      [200]VgpuSchedulerLogEntry
+}
+
+type VgpuCreatablePlacementInfo_v1 struct {
+	Version       uint32
+	VgpuTypeId    uint32
+	Count         uint32
+	PlacementIds  *uint32
+	PlacementSize uint32
+	Pad_cgo_0     [4]byte
+}
+
+type VgpuCreatablePlacementInfo struct {
+	Version       uint32
+	VgpuTypeId    uint32
+	Count         uint32
+	PlacementIds  *uint32
+	PlacementSize uint32
+	Pad_cgo_0     [4]byte
+}
+
+type VgpuSchedulerStateInfo_v2 struct {
+	EngineId        uint32
+	SchedulerPolicy uint32
+	AvgFactor       uint32
+	Timeslice       uint32
+}
+
+type VgpuSchedulerLogEntry_v2 struct {
+	Timestamp                uint64
+	TimeRunTotal             uint64
+	TimeRun                  uint64
+	SwRunlistId              uint32
+	TargetTimeSlice          uint64
+	CumulativePreemptionTime uint64
+	Weight                   uint32
+	Pad_cgo_0                [4]byte
+}
+
+type VgpuSchedulerLogInfo_v2 struct {
+	EngineId        uint32
+	SchedulerPolicy uint32
+	AvgFactor       uint32
+	Timeslice       uint32
+	EntriesCount    uint32
+	LogEntries      [200]VgpuSchedulerLogEntry_v2
+}
+
+type VgpuSchedulerState_v2 struct {
+	EngineId        uint32
+	SchedulerPolicy uint32
+	AvgFactor       uint32
+	Frequency       uint32
+}
+
+type NvLinkPowerThres struct {
+	LowPwrThreshold uint32
 }
 
 type FieldValue struct {
@@ -565,6 +976,66 @@ type nvmlEventData struct {
 	ComputeInstanceId uint32
 }
 
+type SystemEventSet struct {
+	Handle *_Ctype_struct_nvmlSystemEventSet_st
+}
+
+type SystemEventSetCreateRequest_v1 struct {
+	Version uint32
+	Set     SystemEventSet
+}
+
+type SystemEventSetCreateRequest struct {
+	Version uint32
+	Set     SystemEventSet
+}
+
+type SystemEventSetFreeRequest_v1 struct {
+	Version uint32
+	Set     SystemEventSet
+}
+
+type SystemEventSetFreeRequest struct {
+	Version uint32
+	Set     SystemEventSet
+}
+
+type SystemRegisterEventRequest_v1 struct {
+	Version    uint32
+	EventTypes uint64
+	Set        SystemEventSet
+}
+
+type SystemRegisterEventRequest struct {
+	Version    uint32
+	EventTypes uint64
+	Set        SystemEventSet
+}
+
+type SystemEventData_v1 struct {
+	EventType uint64
+	GpuId     uint32
+	Pad_cgo_0 [4]byte
+}
+
+type SystemEventSetWaitRequest_v1 struct {
+	Version   uint32
+	Timeoutms uint32
+	Set       SystemEventSet
+	Data      *SystemEventData_v1
+	DataSize  uint32
+	NumEvent  uint32
+}
+
+type SystemEventSetWaitRequest struct {
+	Version   uint32
+	Timeoutms uint32
+	Set       SystemEventSet
+	Data      *SystemEventData_v1
+	DataSize  uint32
+	NumEvent  uint32
+}
+
 type AccountingStats struct {
 	GpuUtilization    uint32
 	MemoryUtilization uint32
@@ -573,6 +1044,19 @@ type AccountingStats struct {
 	StartTime         uint64
 	IsRunning         uint32
 	Reserved          [5]uint32
+}
+
+type AccountingStats_v2 struct {
+	Pid               uint32
+	IsRunning         uint32
+	GpuUtilization    uint32
+	MemoryUtilization uint32
+	MaxMemoryUsage    uint64
+	SampleCount       uint32
+	SumGpuUtil        uint64
+	SumFbUtil         uint64
+	Time              uint64
+	StartTime         uint64
 }
 
 type EncoderSessionInfo struct {
@@ -694,24 +1178,135 @@ type GpuFabricInfo_v2 struct {
 	HealthMask  uint32
 }
 
-type GpuFabricInfoV struct {
-	Version     uint32
-	ClusterUuid [16]uint8
-	Status      uint32
-	CliqueId    uint32
-	State       uint8
-	HealthMask  uint32
+type GpuFabricInfo_v3 struct {
+	Version       uint32
+	ClusterUuid   [16]uint8
+	Status        uint32
+	CliqueId      uint32
+	State         uint8
+	HealthMask    uint32
+	HealthSummary uint8
+	Pad_cgo_0     [3]byte
 }
 
-type PowerScopeType byte
+type GpuFabricInfoV struct {
+	Version       uint32
+	ClusterUuid   [16]uint8
+	Status        uint32
+	CliqueId      uint32
+	State         uint8
+	HealthMask    uint32
+	HealthSummary uint8
+	Pad_cgo_0     [3]byte
+}
 
-type PowerValue_v2 struct {
-	Version      uint32
-	PowerScope   uint8
-	PowerValueMw uint32
+type CPERCursorHandle uint64
+
+type CPERCursor_v1 struct {
+	CperTypeMask uint32
+	Uuid         [80]int8
+	Handle       uint64
+}
+
+type GetCPER_v1 struct {
+	Cursor     CPERCursor_v1
+	Buffer     *uint8
+	BufferSize uint32
+	Pad_cgo_0  [4]byte
+}
+
+type SystemDriverBranchInfo_v1 struct {
+	Version uint32
+	Branch  [80]int8
+}
+
+type SystemDriverBranchInfo struct {
+	Version uint32
+	Branch  [80]int8
 }
 
 type AffinityScope uint32
+
+type Temperature_v1 struct {
+	Version     uint32
+	SensorType  uint32
+	Temperature int32
+}
+
+type Temperature struct {
+	Version     uint32
+	SensorType  uint32
+	Temperature int32
+}
+
+type NvlinkSupportedBwModes_v1 struct {
+	Version      uint32
+	BwModes      [23]uint8
+	TotalBwModes uint8
+}
+
+type NvlinkSupportedBwModes struct {
+	Version      uint32
+	BwModes      [23]uint8
+	TotalBwModes uint8
+}
+
+type NvlinkGetBwMode_v1 struct {
+	Version   uint32
+	BIsBest   uint32
+	BwMode    uint8
+	Pad_cgo_0 [3]byte
+}
+
+type NvlinkGetBwMode struct {
+	Version   uint32
+	BIsBest   uint32
+	BwMode    uint8
+	Pad_cgo_0 [3]byte
+}
+
+type NvlinkSetBwMode_v1 struct {
+	Version   uint32
+	BSetBest  uint32
+	BwMode    uint8
+	Pad_cgo_0 [3]byte
+}
+
+type NvlinkSetBwMode struct {
+	Version   uint32
+	BSetBest  uint32
+	BwMode    uint8
+	Pad_cgo_0 [3]byte
+}
+
+type NvLinkInfo_v1 struct {
+	Version       uint32
+	IsNvleEnabled uint32
+}
+
+type NvlinkFirmwareVersion struct {
+	UcodeType uint8
+	Major     uint32
+	Minor     uint32
+	SubMinor  uint32
+}
+
+type NvlinkFirmwareInfo struct {
+	FirmwareVersion [100]NvlinkFirmwareVersion
+	NumValidEntries uint32
+}
+
+type NvLinkInfo_v2 struct {
+	Version       uint32
+	IsNvleEnabled uint32
+	FirmwareInfo  NvlinkFirmwareInfo
+}
+
+type NvLinkInfo struct {
+	Version       uint32
+	IsNvleEnabled uint32
+	FirmwareInfo  NvlinkFirmwareInfo
+}
 
 type VgpuVersion struct {
 	MinVersion uint32
@@ -750,6 +1345,33 @@ type VgpuPgpuCompatibility struct {
 type ExcludedDeviceInfo struct {
 	PciInfo PciInfo
 	Uuid    [80]int8
+}
+
+type PRMTLV_v1 struct {
+	DataSize uint32
+	Status   uint32
+	InData   [496]uint8
+}
+
+type PRMCounterInput_v1 struct {
+	LocalPort uint32
+}
+
+type PRMCounterValue_v1 struct {
+	Status      uint32
+	OutputType  uint32
+	OutputValue [8]byte
+}
+
+type PRMCounter_v1 struct {
+	CounterId    uint32
+	InData       PRMCounterInput_v1
+	CounterValue PRMCounterValue_v1
+}
+
+type PRMCounterList_v1 struct {
+	NumCounters uint32
+	Counters    *PRMCounter_v1
 }
 
 type GpuInstancePlacement struct {
@@ -809,10 +1431,6 @@ type nvmlGpuInstanceInfo struct {
 	Id        uint32
 	ProfileId uint32
 	Placement GpuInstancePlacement
-}
-
-type nvmlGpuInstance struct {
-	Handle *_Ctype_struct_nvmlGpuInstance_st
 }
 
 type ComputeInstancePlacement struct {
@@ -895,7 +1513,7 @@ type nvmlGpmMetricsGetType struct {
 	NumMetrics uint32
 	Sample1    nvmlGpmSample
 	Sample2    nvmlGpmSample
-	Metrics    [98]GpmMetric
+	Metrics    [333]GpmMetric
 }
 
 type GpmSupport struct {
@@ -903,6 +1521,95 @@ type GpmSupport struct {
 	IsSupportedDevice uint32
 }
 
-type NvLinkPowerThres struct {
-	LowPwrThreshold uint32
+type DeviceCapabilities_v1 struct {
+	Version uint32
+	CapMask uint32
+}
+
+type DeviceCapabilities struct {
+	Version uint32
+	CapMask uint32
+}
+
+type Mask255 struct {
+	Mask [8]uint32
+}
+
+type WorkloadPowerProfileInfo_v1 struct {
+	Version         uint32
+	ProfileId       uint32
+	Priority        uint32
+	ConflictingMask Mask255
+}
+
+type WorkloadPowerProfileInfo struct {
+	Version         uint32
+	ProfileId       uint32
+	Priority        uint32
+	ConflictingMask Mask255
+}
+
+type WorkloadPowerProfileProfilesInfo_v1 struct {
+	Version          uint32
+	PerfProfilesMask Mask255
+	PerfProfile      [255]WorkloadPowerProfileInfo
+}
+
+type WorkloadPowerProfileProfilesInfo struct {
+	Version          uint32
+	PerfProfilesMask Mask255
+	PerfProfile      [255]WorkloadPowerProfileInfo
+}
+
+type WorkloadPowerProfileCurrentProfiles_v1 struct {
+	Version               uint32
+	PerfProfilesMask      Mask255
+	RequestedProfilesMask Mask255
+	EnforcedProfilesMask  Mask255
+}
+
+type WorkloadPowerProfileCurrentProfiles struct {
+	Version               uint32
+	PerfProfilesMask      Mask255
+	RequestedProfilesMask Mask255
+	EnforcedProfilesMask  Mask255
+}
+
+type WorkloadPowerProfileRequestedProfiles_v1 struct {
+	Version               uint32
+	RequestedProfilesMask Mask255
+}
+
+type WorkloadPowerProfileRequestedProfiles struct {
+	Version               uint32
+	RequestedProfilesMask Mask255
+}
+
+type WorkloadPowerProfileUpdateProfiles_v1 struct {
+	Operation          uint32
+	UpdateProfilesMask Mask255
+}
+
+type PowerSmoothingProfile_v1 struct {
+	Version   uint32
+	ProfileId uint32
+	ParamId   uint32
+	Value     float64
+}
+
+type PowerSmoothingProfile struct {
+	Version   uint32
+	ProfileId uint32
+	ParamId   uint32
+	Value     float64
+}
+
+type PowerSmoothingState_v1 struct {
+	Version uint32
+	State   uint32
+}
+
+type PowerSmoothingState struct {
+	Version uint32
+	State   uint32
 }

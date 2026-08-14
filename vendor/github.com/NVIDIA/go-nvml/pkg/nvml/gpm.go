@@ -20,7 +20,7 @@ type GpmMetricsGetType struct {
 	NumMetrics uint32
 	Sample1    GpmSample
 	Sample2    GpmSample
-	Metrics    [98]GpmMetric
+	Metrics    [333]GpmMetric
 }
 
 func (g *GpmMetricsGetType) convert() *nvmlGpmMetricsGetType {
@@ -30,9 +30,8 @@ func (g *GpmMetricsGetType) convert() *nvmlGpmMetricsGetType {
 		Sample1:    g.Sample1.(nvmlGpmSample),
 		Sample2:    g.Sample2.(nvmlGpmSample),
 	}
-	for i := range g.Metrics {
-		out.Metrics[i] = g.Metrics[i]
-	}
+	copy(out.Metrics[:], g.Metrics[:])
+
 	return out
 }
 
@@ -43,9 +42,8 @@ func (g *nvmlGpmMetricsGetType) convert() *GpmMetricsGetType {
 		Sample1:    g.Sample1,
 		Sample2:    g.Sample2,
 	}
-	for i := range g.Metrics {
-		out.Metrics[i] = g.Metrics[i]
-	}
+	copy(out.Metrics[:], g.Metrics[:])
+
 	return out
 }
 
@@ -60,6 +58,7 @@ func (l *library) GpmMetricsGetV(metricsGet *GpmMetricsGetType) GpmMetricsGetVTy
 
 // nvmlGpmMetricsGetStub is a stub function that can be overridden for testing.
 var nvmlGpmMetricsGetStub = nvmlGpmMetricsGet
+var nvmlGpmQueryDeviceSupportStub = nvmlGpmQueryDeviceSupport
 
 func (metricsGetV GpmMetricsGetVType) V1() Return {
 	metricsGetV.metricsGet.Version = 1
@@ -122,8 +121,8 @@ func (device nvmlDevice) GpmQueryDeviceSupportV() GpmSupportV {
 
 func (gpmSupportV GpmSupportV) V1() (GpmSupport, Return) {
 	var gpmSupport GpmSupport
-	gpmSupport.Version = 1
-	ret := nvmlGpmQueryDeviceSupport(gpmSupportV.device, &gpmSupport)
+	gpmSupport.Version = GPM_SUPPORT_VERSION
+	ret := nvmlGpmQueryDeviceSupportStub(gpmSupportV.device, &gpmSupport)
 	return gpmSupport, ret
 }
 
@@ -134,7 +133,7 @@ func (l *library) GpmQueryDeviceSupport(device Device) (GpmSupport, Return) {
 func (device nvmlDevice) GpmQueryDeviceSupport() (GpmSupport, Return) {
 	var gpmSupport GpmSupport
 	gpmSupport.Version = GPM_SUPPORT_VERSION
-	ret := nvmlGpmQueryDeviceSupport(device, &gpmSupport)
+	ret := nvmlGpmQueryDeviceSupportStub(device, &gpmSupport)
 	return gpmSupport, ret
 }
 

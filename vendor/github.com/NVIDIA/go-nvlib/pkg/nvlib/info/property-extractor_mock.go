@@ -17,6 +17,9 @@ var _ PropertyExtractor = &PropertyExtractorMock{}
 //
 //		// make and configure a mocked PropertyExtractor
 //		mockedPropertyExtractor := &PropertyExtractorMock{
+//			HasAnIntegratedGPUFunc: func() (bool, string) {
+//				panic("mock out the HasAnIntegratedGPU method")
+//			},
 //			HasDXCoreFunc: func() (bool, string) {
 //				panic("mock out the HasDXCore method")
 //			},
@@ -26,12 +29,6 @@ var _ PropertyExtractor = &PropertyExtractorMock{}
 //			HasTegraFilesFunc: func() (bool, string) {
 //				panic("mock out the HasTegraFiles method")
 //			},
-//			IsTegraSystemFunc: func() (bool, string) {
-//				panic("mock out the IsTegraSystem method")
-//			},
-//			UsesOnlyNVGPUModuleFunc: func() (bool, string) {
-//				panic("mock out the UsesOnlyNVGPUModule method")
-//			},
 //		}
 //
 //		// use mockedPropertyExtractor in code that requires PropertyExtractor
@@ -39,6 +36,9 @@ var _ PropertyExtractor = &PropertyExtractorMock{}
 //
 //	}
 type PropertyExtractorMock struct {
+	// HasAnIntegratedGPUFunc mocks the HasAnIntegratedGPU method.
+	HasAnIntegratedGPUFunc func() (bool, string)
+
 	// HasDXCoreFunc mocks the HasDXCore method.
 	HasDXCoreFunc func() (bool, string)
 
@@ -48,14 +48,11 @@ type PropertyExtractorMock struct {
 	// HasTegraFilesFunc mocks the HasTegraFiles method.
 	HasTegraFilesFunc func() (bool, string)
 
-	// IsTegraSystemFunc mocks the IsTegraSystem method.
-	IsTegraSystemFunc func() (bool, string)
-
-	// UsesOnlyNVGPUModuleFunc mocks the UsesOnlyNVGPUModule method.
-	UsesOnlyNVGPUModuleFunc func() (bool, string)
-
 	// calls tracks calls to the methods.
 	calls struct {
+		// HasAnIntegratedGPU holds details about calls to the HasAnIntegratedGPU method.
+		HasAnIntegratedGPU []struct {
+		}
 		// HasDXCore holds details about calls to the HasDXCore method.
 		HasDXCore []struct {
 		}
@@ -65,18 +62,38 @@ type PropertyExtractorMock struct {
 		// HasTegraFiles holds details about calls to the HasTegraFiles method.
 		HasTegraFiles []struct {
 		}
-		// IsTegraSystem holds details about calls to the IsTegraSystem method.
-		IsTegraSystem []struct {
-		}
-		// UsesOnlyNVGPUModule holds details about calls to the UsesOnlyNVGPUModule method.
-		UsesOnlyNVGPUModule []struct {
-		}
 	}
-	lockHasDXCore           sync.RWMutex
-	lockHasNvml             sync.RWMutex
-	lockHasTegraFiles       sync.RWMutex
-	lockIsTegraSystem       sync.RWMutex
-	lockUsesOnlyNVGPUModule sync.RWMutex
+	lockHasAnIntegratedGPU sync.RWMutex
+	lockHasDXCore          sync.RWMutex
+	lockHasNvml            sync.RWMutex
+	lockHasTegraFiles      sync.RWMutex
+}
+
+// HasAnIntegratedGPU calls HasAnIntegratedGPUFunc.
+func (mock *PropertyExtractorMock) HasAnIntegratedGPU() (bool, string) {
+	if mock.HasAnIntegratedGPUFunc == nil {
+		panic("PropertyExtractorMock.HasAnIntegratedGPUFunc: method is nil but PropertyExtractor.HasAnIntegratedGPU was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockHasAnIntegratedGPU.Lock()
+	mock.calls.HasAnIntegratedGPU = append(mock.calls.HasAnIntegratedGPU, callInfo)
+	mock.lockHasAnIntegratedGPU.Unlock()
+	return mock.HasAnIntegratedGPUFunc()
+}
+
+// HasAnIntegratedGPUCalls gets all the calls that were made to HasAnIntegratedGPU.
+// Check the length with:
+//
+//	len(mockedPropertyExtractor.HasAnIntegratedGPUCalls())
+func (mock *PropertyExtractorMock) HasAnIntegratedGPUCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockHasAnIntegratedGPU.RLock()
+	calls = mock.calls.HasAnIntegratedGPU
+	mock.lockHasAnIntegratedGPU.RUnlock()
+	return calls
 }
 
 // HasDXCore calls HasDXCoreFunc.
@@ -157,59 +174,5 @@ func (mock *PropertyExtractorMock) HasTegraFilesCalls() []struct {
 	mock.lockHasTegraFiles.RLock()
 	calls = mock.calls.HasTegraFiles
 	mock.lockHasTegraFiles.RUnlock()
-	return calls
-}
-
-// IsTegraSystem calls IsTegraSystemFunc.
-func (mock *PropertyExtractorMock) IsTegraSystem() (bool, string) {
-	if mock.IsTegraSystemFunc == nil {
-		panic("PropertyExtractorMock.IsTegraSystemFunc: method is nil but PropertyExtractor.IsTegraSystem was just called")
-	}
-	callInfo := struct {
-	}{}
-	mock.lockIsTegraSystem.Lock()
-	mock.calls.IsTegraSystem = append(mock.calls.IsTegraSystem, callInfo)
-	mock.lockIsTegraSystem.Unlock()
-	return mock.IsTegraSystemFunc()
-}
-
-// IsTegraSystemCalls gets all the calls that were made to IsTegraSystem.
-// Check the length with:
-//
-//	len(mockedPropertyExtractor.IsTegraSystemCalls())
-func (mock *PropertyExtractorMock) IsTegraSystemCalls() []struct {
-} {
-	var calls []struct {
-	}
-	mock.lockIsTegraSystem.RLock()
-	calls = mock.calls.IsTegraSystem
-	mock.lockIsTegraSystem.RUnlock()
-	return calls
-}
-
-// UsesOnlyNVGPUModule calls UsesOnlyNVGPUModuleFunc.
-func (mock *PropertyExtractorMock) UsesOnlyNVGPUModule() (bool, string) {
-	if mock.UsesOnlyNVGPUModuleFunc == nil {
-		panic("PropertyExtractorMock.UsesOnlyNVGPUModuleFunc: method is nil but PropertyExtractor.UsesOnlyNVGPUModule was just called")
-	}
-	callInfo := struct {
-	}{}
-	mock.lockUsesOnlyNVGPUModule.Lock()
-	mock.calls.UsesOnlyNVGPUModule = append(mock.calls.UsesOnlyNVGPUModule, callInfo)
-	mock.lockUsesOnlyNVGPUModule.Unlock()
-	return mock.UsesOnlyNVGPUModuleFunc()
-}
-
-// UsesOnlyNVGPUModuleCalls gets all the calls that were made to UsesOnlyNVGPUModule.
-// Check the length with:
-//
-//	len(mockedPropertyExtractor.UsesOnlyNVGPUModuleCalls())
-func (mock *PropertyExtractorMock) UsesOnlyNVGPUModuleCalls() []struct {
-} {
-	var calls []struct {
-	}
-	mock.lockUsesOnlyNVGPUModule.RLock()
-	calls = mock.calls.UsesOnlyNVGPUModule
-	mock.lockUsesOnlyNVGPUModule.RUnlock()
 	return calls
 }

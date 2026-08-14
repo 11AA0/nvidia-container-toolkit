@@ -20,8 +20,6 @@ import (
 	"fmt"
 
 	"github.com/opencontainers/runtime-spec/specs-go"
-
-	"github.com/NVIDIA/nvidia-container-toolkit/internal/logger"
 )
 
 // SpecModifier defines an interface for modifying a (raw) OCI spec
@@ -31,9 +29,15 @@ type SpecModifier interface {
 	Modify(*specs.Spec) error
 }
 
+// SpecModifiers is a collection of OCI Spec modifiers that can be treated as a
+// single modifier.
+type SpecModifiers []SpecModifier
+
+var _ SpecModifier = (SpecModifiers)(nil)
+
 // Spec defines the operations to be performed on an OCI specification
 //
-//go:generate moq -stub -out spec_mock.go . Spec
+//go:generate moq -rm -fmt=goimports -stub -out spec_mock.go . Spec
 type Spec interface {
 	Load() (*specs.Spec, error)
 	Flush() error
@@ -43,17 +47,37 @@ type Spec interface {
 
 // NewSpec creates fileSpec based on the command line arguments passed to the
 // application using the specified logger.
-func NewSpec(logger logger.Interface, args []string) (Spec, error) {
+func NewSpec(args []string, opts ...Option) (Spec, error) {
+	o := &options{
+		allowUnkownFields: false,
+	}
+	for _, opt := range opts {
+		opt(o)
+	}
+
 	bundleDir, err := GetBundleDir(args)
 	if err != nil {
 		return nil, fmt.Errorf("error getting bundle directory: %v", err)
 	}
-	logger.Debugf("Using bundle directory: %v", bundleDir)
+	o.logger.Debugf("Using bundle directory: %v", bundleDir)
 
 	ociSpecPath := GetSpecFilePath(bundleDir)
-	logger.Infof("Using OCI specification file path: %v", ociSpecPath)
+	o.logger.Infof("Using OCI specification file path: %v", ociSpecPath)
 
-	ociSpec := NewFileSpec(ociSpecPath)
+	ociSpec := NewFileSpec(ociSpecPath, !o.allowUnkownFields)
 
 	return ociSpec, nil
+}
+
+// Modify a spec based on a collection of modifiers.
+func (ms SpecModifiers) Modify(s *specs.Spec) error {
+	for _, m := range ms {
+		if m == nil {
+			continue
+		}
+		if err := m.Modify(s); err != nil {
+			return err
+		}
+	}
+	return nil
 }

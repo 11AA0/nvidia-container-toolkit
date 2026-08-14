@@ -17,6 +17,7 @@
 package nvpci
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -46,6 +47,8 @@ const (
 )
 
 // Interface allows us to get a list of all NVIDIA PCI devices.
+//
+//go:generate moq -rm -fmt=goimports -out nvpci_mock.go . Interface
 type Interface interface {
 	GetAllDevices() ([]*NvidiaPCIDevice, error)
 	Get3DControllers() ([]*NvidiaPCIDevice, error)
@@ -54,6 +57,7 @@ type Interface interface {
 	GetGPUs() ([]*NvidiaPCIDevice, error)
 	GetGPUByIndex(int) (*NvidiaPCIDevice, error)
 	GetGPUByPciBusID(string) (*NvidiaPCIDevice, error)
+	GetNvidiaDeviceByPciBusID(string) (*NvidiaPCIDevice, error)
 	GetNetworkControllers() ([]*NvidiaPCIDevice, error)
 	GetPciBridges() ([]*NvidiaPCIDevice, error)
 	GetDPUs() ([]*NvidiaPCIDevice, error)
@@ -104,19 +108,22 @@ func (s *SriovInfo) IsVF() bool {
 
 // NvidiaPCIDevice represents a PCI device for an NVIDIA product.
 type NvidiaPCIDevice struct {
-	Path       string
-	Address    string
-	Vendor     uint16
-	Class      uint32
-	ClassName  string
-	Device     uint16
-	DeviceName string
-	Driver     string
-	IommuGroup int
-	NumaNode   int
-	Config     *ConfigSpace
-	Resources  MemoryResources
-	SriovInfo  SriovInfo
+	Path            string
+	Address         string
+	Vendor          uint16
+	Class           uint32
+	ClassName       string
+	Device          uint16
+	SubsystemVendor uint16
+	SubsystemDevice uint16
+	DeviceName      string
+	Driver          string
+	IommuGroup      int
+	IommuFD         string
+	NumaNode        int
+	Config          *ConfigSpace
+	Resources       MemoryResources
+	SriovInfo       SriovInfo
 }
 
 // IsVGAController if class == 0x300.
@@ -208,7 +215,7 @@ func (p *nvpci) GetAllDevices() ([]*NvidiaPCIDevice, error) {
 	cache := make(map[string]*NvidiaPCIDevice)
 	for _, deviceDir := range deviceDirs {
 		deviceAddress := deviceDir.Name()
-		nvdevice, err := p.getGPUByPciBusID(deviceAddress, cache)
+		nvdevice, err := p.getNvidiaDeviceByPciBusID(deviceAddress, cache)
 		if err != nil {
 			return nil, fmt.Errorf("error constructing NVIDIA PCI device %s: %v", deviceAddress, err)
 		}
@@ -232,13 +239,49 @@ func (p *nvpci) GetAllDevices() ([]*NvidiaPCIDevice, error) {
 	return nvdevices, nil
 }
 
-// GetGPUByPciBusID constructs an NvidiaPCIDevice for the specified address (PCI Bus ID).
+// GetGPUByPciBusID returns an NvidiaPCIDevice for the specified address (PCI Bus ID)
+// only if the device is a GPU. Returns nil if the device exists but is not a GPU.
 func (p *nvpci) GetGPUByPciBusID(address string) (*NvidiaPCIDevice, error) {
-	// Pass nil as to force reading device information from sysfs.
-	return p.getGPUByPciBusID(address, nil)
+	dev, err := p.GetNvidiaDeviceByPciBusID(address)
+	if err != nil {
+		return nil, err
+	}
+	if dev == nil || !dev.IsGPU() {
+		return nil, nil
+	}
+	return dev, nil
 }
 
-func (p *nvpci) getGPUByPciBusID(address string, cache map[string]*NvidiaPCIDevice) (*NvidiaPCIDevice, error) {
+// GetNvidiaDeviceByPciBusID constructs an NvidiaPCIDevice for the specified
+// address (PCI Bus ID). This returns any NVIDIA PCI device at the given
+// address, including GPUs, NVSwitches, and other NVIDIA devices.
+func (p *nvpci) GetNvidiaDeviceByPciBusID(address string) (*NvidiaPCIDevice, error) {
+	return p.getNvidiaDeviceByPciBusID(address, nil)
+}
+
+// readPCIFieldString reads a sysfs PCI attribute file and returns its contents with any surrounding whitespaces trimmed.
+func readPCIFieldString(devicePath, field string) (string, error) {
+	raw, err := os.ReadFile(path.Join(devicePath, field))
+	if err != nil {
+		return "", fmt.Errorf("unable to read PCI %s for %s: %w", field, devicePath, err)
+	}
+	return strings.TrimSpace(string(raw)), nil
+}
+
+// readPCIField reads a sysfs PCI attribute file and parses it as an unsigned integer.
+func readPCIField(devicePath, field string, bitSize int) (uint64, error) {
+	str, err := readPCIFieldString(devicePath, field)
+	if err != nil {
+		return 0, err
+	}
+	val, err := strconv.ParseUint(str, 0, bitSize)
+	if err != nil {
+		return 0, fmt.Errorf("unable to parse PCI %s for %s: %w", field, devicePath, err)
+	}
+	return val, nil
+}
+
+func (p *nvpci) getNvidiaDeviceByPciBusID(address string, cache map[string]*NvidiaPCIDevice) (*NvidiaPCIDevice, error) {
 	if cache != nil {
 		if pciDevice, exists := cache[address]; exists {
 			return pciDevice, nil
@@ -246,71 +289,67 @@ func (p *nvpci) getGPUByPciBusID(address string, cache map[string]*NvidiaPCIDevi
 	}
 	devicePath := filepath.Join(p.pciDevicesRoot, address)
 
-	vendor, err := os.ReadFile(path.Join(devicePath, "vendor"))
+	vendorID, err := readPCIField(devicePath, "vendor", 16)
 	if err != nil {
-		return nil, fmt.Errorf("unable to read PCI device vendor id for %s: %v", address, err)
-	}
-	vendorStr := strings.TrimSpace(string(vendor))
-	vendorID, err := strconv.ParseUint(vendorStr, 0, 16)
-	if err != nil {
-		return nil, fmt.Errorf("unable to convert vendor string to uint16: %v", vendorStr)
+		return nil, err
 	}
 
 	if uint16(vendorID) != PCINvidiaVendorID && uint16(vendorID) != PCIMellanoxVendorID {
 		return nil, nil
 	}
 
-	class, err := os.ReadFile(path.Join(devicePath, "class"))
+	classID, err := readPCIField(devicePath, "class", 32)
 	if err != nil {
-		return nil, fmt.Errorf("unable to read PCI device class for %s: %v", address, err)
-	}
-	classStr := strings.TrimSpace(string(class))
-	classID, err := strconv.ParseUint(classStr, 0, 32)
-	if err != nil {
-		return nil, fmt.Errorf("unable to convert class string to uint32: %v", classStr)
+		return nil, err
 	}
 
-	device, err := os.ReadFile(path.Join(devicePath, "device"))
+	deviceID, err := readPCIField(devicePath, "device", 16)
 	if err != nil {
-		return nil, fmt.Errorf("unable to read PCI device id for %s: %v", address, err)
-	}
-	deviceStr := strings.TrimSpace(string(device))
-	deviceID, err := strconv.ParseUint(deviceStr, 0, 16)
-	if err != nil {
-		return nil, fmt.Errorf("unable to convert device string to uint16: %v", deviceStr)
+		return nil, err
 	}
 
-	driver, err := filepath.EvalSymlinks(path.Join(devicePath, "driver"))
-	if err == nil {
-		driver = filepath.Base(driver)
-	} else if os.IsNotExist(err) {
-		driver = ""
-	} else {
-		return nil, fmt.Errorf("unable to detect driver for %s: %v", address, err)
-	}
-
-	var iommuGroup int64
-	iommu, err := filepath.EvalSymlinks(path.Join(devicePath, "iommu_group"))
-	if err == nil {
-		iommuGroupStr := strings.TrimSpace(filepath.Base(iommu))
-		iommuGroup, err = strconv.ParseInt(iommuGroupStr, 0, 64)
-		if err != nil {
-			return nil, fmt.Errorf("unable to convert iommu_group string to int64: %v", iommuGroupStr)
-		}
-	} else if os.IsNotExist(err) {
-		iommuGroup = -1
-	} else {
-		return nil, fmt.Errorf("unable to detect iommu_group for %s: %v", address, err)
-	}
-
-	numa, err := os.ReadFile(path.Join(devicePath, "numa_node"))
+	numaStr, err := readPCIFieldString(devicePath, "numa_node")
 	if err != nil {
-		return nil, fmt.Errorf("unable to read PCI NUMA node for %s: %v", address, err)
+		return nil, err
 	}
-	numaStr := strings.TrimSpace(string(numa))
+	// numa_node is parsed as a signed integer since "-1" is a valid value meaning "no NUMA affinity".
 	numaNode, err := strconv.ParseInt(numaStr, 0, 64)
 	if err != nil {
-		return nil, fmt.Errorf("unable to convert NUMA node string to int64: %v", numaNode)
+		return nil, fmt.Errorf("unable to parse PCI numa_node for %s: %w", devicePath, err)
+	}
+
+	// Tolerate missing subsystem files: some environments (e.g. certain virtualised or passthrough PCI topologies)
+	// do not expose them, so the IDs will default to 0.
+	subsystemVendorID, err := readPCIField(devicePath, "subsystem_vendor", 16)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		p.logger.Warningf("subsystem_vendor file not found for %s", address)
+	}
+
+	subsystemDeviceID, err := readPCIField(devicePath, "subsystem_device", 16)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		p.logger.Warningf("subsystem_device file not found for %s", address)
+	}
+
+	driver, err := getDriver(devicePath)
+	if err != nil {
+		return nil, fmt.Errorf("unable to detect driver for %s: %w", address, err)
+	}
+
+	iommuGroup, err := getIOMMUGroup(devicePath)
+	if err != nil {
+		return nil, fmt.Errorf("unable to detect IOMMU group for %s: %w", address, err)
+	}
+
+	iommuFD, err := getIOMMUFD(devicePath)
+	if err != nil {
+		// log a warning, do not return an error as this host may not have iommufd configured/supported
+		p.logger.Warningf("unable to detect IOMMU FD for %s: %v", address, err)
 	}
 
 	config := &ConfigSpace{
@@ -359,8 +398,9 @@ func (p *nvpci) getGPUByPciBusID(address string, cache map[string]*NvidiaPCIDevi
 	var sriovInfo SriovInfo
 	// Device is a virtual function (VF) if "physfn" symlink exists.
 	physFnAddress, err := filepath.EvalSymlinks(path.Join(devicePath, "physfn"))
-	if err == nil {
-		physFn, err := p.getGPUByPciBusID(filepath.Base(physFnAddress), cache)
+	switch {
+	case err == nil:
+		physFn, err := p.getNvidiaDeviceByPciBusID(filepath.Base(physFnAddress), cache)
 		if err != nil {
 			return nil, fmt.Errorf("unable to detect physfn for %s: %v", address, err)
 		}
@@ -369,29 +409,32 @@ func (p *nvpci) getGPUByPciBusID(address string, cache map[string]*NvidiaPCIDevi
 				PhysicalFunction: physFn,
 			},
 		}
-	} else if os.IsNotExist(err) {
+	case os.IsNotExist(err):
 		sriovInfo, err = p.getSriovInfoForPhysicalFunction(devicePath)
 		if err != nil {
 			return nil, fmt.Errorf("unable to read SRIOV physical function details for %s: %v", devicePath, err)
 		}
-	} else {
+	default:
 		return nil, fmt.Errorf("unable to read %s: %v", path.Join(devicePath, "physfn"), err)
 	}
 
 	nvdevice := &NvidiaPCIDevice{
-		Path:       devicePath,
-		Address:    address,
-		Vendor:     uint16(vendorID),
-		Class:      uint32(classID),
-		Device:     uint16(deviceID),
-		Driver:     driver,
-		IommuGroup: int(iommuGroup),
-		NumaNode:   int(numaNode),
-		Config:     config,
-		Resources:  resources,
-		DeviceName: deviceName,
-		ClassName:  className,
-		SriovInfo:  sriovInfo,
+		Path:            devicePath,
+		Address:         address,
+		Vendor:          uint16(vendorID),
+		Class:           uint32(classID),
+		Device:          uint16(deviceID),
+		SubsystemVendor: uint16(subsystemVendorID),
+		SubsystemDevice: uint16(subsystemDeviceID),
+		Driver:          driver,
+		IommuGroup:      int(iommuGroup),
+		IommuFD:         iommuFD,
+		NumaNode:        int(numaNode),
+		Config:          config,
+		Resources:       resources,
+		DeviceName:      deviceName,
+		ClassName:       className,
+		SriovInfo:       sriovInfo,
 	}
 
 	// Cache physical functions only as VF can't be a root device.
@@ -485,32 +528,20 @@ func (p *nvpci) GetGPUByIndex(i int) (*NvidiaPCIDevice, error) {
 }
 
 func (p *nvpci) getSriovInfoForPhysicalFunction(devicePath string) (sriovInfo SriovInfo, err error) {
-	totalVfsPath := filepath.Join(devicePath, "sriov_totalvfs")
-	numVfsPath := filepath.Join(devicePath, "sriov_numvfs")
-
 	// No file for sriov_totalvfs exists? Not an SRIOV device, return nil
-	_, err = os.Stat(totalVfsPath)
+	_, err = os.Stat(filepath.Join(devicePath, "sriov_totalvfs"))
 	if err != nil && os.IsNotExist(err) {
 		return sriovInfo, nil
 	}
-	sriovTotalVfs, err := os.ReadFile(totalVfsPath)
+
+	totalVfsInt, err := readPCIField(devicePath, "sriov_totalvfs", 16)
 	if err != nil {
-		return sriovInfo, fmt.Errorf("unable to read sriov_totalvfs: %v", err)
-	}
-	totalVfsStr := strings.TrimSpace(string(sriovTotalVfs))
-	totalVfsInt, err := strconv.ParseUint(totalVfsStr, 10, 16)
-	if err != nil {
-		return sriovInfo, fmt.Errorf("unable to convert sriov_totalvfs to uint64: %v", err)
+		return sriovInfo, err
 	}
 
-	sriovNumVfs, err := os.ReadFile(numVfsPath)
+	numVfsInt, err := readPCIField(devicePath, "sriov_numvfs", 16)
 	if err != nil {
-		return sriovInfo, fmt.Errorf("unable to read sriov_numvfs for: %v", err)
-	}
-	numVfsStr := strings.TrimSpace(string(sriovNumVfs))
-	numVfsInt, err := strconv.ParseUint(numVfsStr, 10, 16)
-	if err != nil {
-		return sriovInfo, fmt.Errorf("unable to convert sriov_numvfs to uint64: %v", err)
+		return sriovInfo, err
 	}
 
 	sriovInfo = SriovInfo{
@@ -520,4 +551,48 @@ func (p *nvpci) getSriovInfoForPhysicalFunction(devicePath string) (sriovInfo Sr
 		},
 	}
 	return sriovInfo, nil
+}
+
+func getDriver(devicePath string) (string, error) {
+	driver, err := filepath.EvalSymlinks(path.Join(devicePath, "driver"))
+	switch {
+	case os.IsNotExist(err):
+		return "", nil
+	case err == nil:
+		return filepath.Base(driver), nil
+	}
+	return "", err
+}
+
+func getIOMMUFD(devicePath string) (string, error) {
+	content, err := os.ReadDir(path.Join(devicePath, "vfio-dev"))
+	if err != nil {
+		return "", err
+	}
+	for _, c := range content {
+		if !c.IsDir() {
+			continue
+		}
+		if strings.HasPrefix(c.Name(), "vfio") {
+			return c.Name(), nil
+		}
+	}
+	return "", fmt.Errorf("no iommufd device found")
+}
+
+func getIOMMUGroup(devicePath string) (int64, error) {
+	var iommuGroup int64
+	iommu, err := filepath.EvalSymlinks(path.Join(devicePath, "iommu_group"))
+	switch {
+	case os.IsNotExist(err):
+		return -1, nil
+	case err == nil:
+		iommuGroupStr := strings.TrimSpace(filepath.Base(iommu))
+		iommuGroup, err = strconv.ParseInt(iommuGroupStr, 0, 64)
+		if err != nil {
+			return 0, fmt.Errorf("unable to convert iommu_group string to int64: %v", iommuGroupStr)
+		}
+		return iommuGroup, nil
+	}
+	return 0, err
 }

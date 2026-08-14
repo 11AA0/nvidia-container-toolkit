@@ -16,123 +16,227 @@
 name: image
 
 on:
-  pull_request:
-    types:
-      - opened
-      - synchronize
-    branches:
-      - main
-      - release-*
-  push:
-    branches:
-      - main
-      - release-*
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
 
 jobs:
-  packages:
-    runs-on: ubuntu-latest
+  amd64-packages:
+    runs-on: linux-amd64-cpu4
     strategy:
       matrix:
         target:
-          - ubuntu18.04-arm64
           - ubuntu18.04-amd64
-          - ubuntu18.04-ppc64le
-          - centos7-aarch64
           - centos7-x86_64
-          - centos8-ppc64le
-        ispr:
-          - ${{github.event_name == 'pull_request'}}
-        exclude:
-          - ispr: true
-            target: ubuntu18.04-arm64
-          - ispr: true
-            target: ubuntu18.04-ppc64le
-          - ispr: true
-            target: centos7-aarch64
-          - ispr: true
-            target: centos8-ppc64le
       fail-fast: false
+
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         name: Check out code
+
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
+        with:
+          image: tonistiigi/binfmt:master
+
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
+
       - name: build ${{ matrix.target }} packages
         run: |
           sudo apt-get install -y coreutils build-essential sed git bash make
           echo "Building packages"
           ./scripts/build-packages.sh ${{ matrix.target }}
+
       - name: 'Upload Artifacts'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           compression-level: 0
           name: toolkit-container-${{ matrix.target }}-${{ github.run_id }}
           path: ${{ github.workspace }}/dist/*
 
-  image:
-    runs-on: ubuntu-latest
+  arm64-packages:
+    runs-on: linux-arm64-cpu4
     strategy:
       matrix:
-        dist:
-          - ubuntu20.04
-          - ubi8
-          - packaging
-        ispr:
-          - ${{github.event_name == 'pull_request'}}
-        exclude:
-          - ispr: true
-            dist: ubi8
-    needs: packages
+        target:
+          - ubuntu18.04-arm64
+          - centos7-aarch64
+      fail-fast: false
+
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         name: Check out code
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+        with:
+          image: tonistiigi/binfmt:master
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: build ${{ matrix.target }} packages
+        run: |
+          sudo apt-get install -y coreutils build-essential sed git bash make
+          echo "Building packages"
+          ./scripts/build-packages.sh ${{ matrix.target }}
+
+      - name: 'Upload Artifacts'
+        uses: actions/upload-artifact@v7
+        with:
+          compression-level: 0
+          name: toolkit-container-${{ matrix.target }}-${{ github.run_id }}
+          path: ${{ github.workspace }}/dist/*
+
+  packaging-image:
+    runs-on: linux-amd64-cpu4
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    needs:
+      - amd64-packages
+      - arm64-packages
+    steps:
+      - uses: actions/checkout@v6
+        name: Check out code
+
       - name: Calculate build vars
         id: vars
         run: |
-          echo "COMMIT_SHORT_SHA=${GITHUB_SHA:0:8}" >> $GITHUB_ENV
           echo "LOWERCASE_REPO_OWNER=$(echo "${GITHUB_REPOSITORY_OWNER}" | awk '{print tolower($0)}')" >> $GITHUB_ENV
-          REPO_FULL_NAME="${{ github.event.pull_request.head.repo.full_name }}"
-          echo "${REPO_FULL_NAME}"
-          echo "LABEL_IMAGE_SOURCE=https://github.com/${REPO_FULL_NAME}" >> $GITHUB_ENV
-
-          PUSH_ON_BUILD="false"
-          BUILD_MULTI_ARCH_IMAGES="false"
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            if [[ "${{ github.actor }}" != "dependabot[bot]" && "${{ github.event.pull_request.head.repo.full_name }}" == "${{ github.repository }}" ]]; then
-              # For non-fork PRs that are not created by dependabot we do push images
-              PUSH_ON_BUILD="true"
-            fi
-          elif [[ "${{ github.event_name }}" == "push" ]]; then
-            # On push events we do generate images and enable muilti-arch builds
-            PUSH_ON_BUILD="true"
-            BUILD_MULTI_ARCH_IMAGES="true"
-          fi
-          echo "PUSH_ON_BUILD=${PUSH_ON_BUILD}" >> $GITHUB_ENV
-          echo "BUILD_MULTI_ARCH_IMAGES=${BUILD_MULTI_ARCH_IMAGES}" >> $GITHUB_ENV
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
+        with:
+          image: tonistiigi/binfmt:master
+
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
+
       - name: Get built packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: ${{ github.workspace }}/dist/
           pattern: toolkit-container-*-${{ github.run_id }}
           merge-multiple: true
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Go Proxy
+        id: setup-go-proxy
+        uses: nv-gha-runners/setup-artifactory-go-proxy@main
+
       - name: Build image
         env:
-          IMAGE_NAME: ghcr.io/${LOWERCASE_REPO_OWNER}/container-toolkit
-          VERSION: ${COMMIT_SHORT_SHA}
+          IMAGE_NAME: ghcr.io/${{ env.LOWERCASE_REPO_OWNER }}/container-toolkit
+          VERSION: ${{ inputs.version }}
+          PUSH_ON_BUILD: "true"
+          GOPROXY: ${{ steps.setup-go-proxy.outputs.goproxy-url }}
         run: |
           echo "${VERSION}"
-          make -f deployments/container/Makefile build-${{ matrix.dist }}
+          make -f deployments/container/Makefile build-packaging
+
+  application-image:
+    strategy:
+      matrix:
+        arch:
+          - amd64
+          - arm64
+    runs-on: linux-${{ matrix.arch }}-cpu4
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    needs:
+      - amd64-packages
+      - arm64-packages
+    steps:
+      - uses: actions/checkout@v6
+        name: Check out code
+
+      - name: Calculate build vars
+        id: vars
+        run: |
+          echo "LOWERCASE_REPO_OWNER=$(echo "${GITHUB_REPOSITORY_OWNER}" | awk '{print tolower($0)}')" >> $GITHUB_ENV
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+        with:
+          image: tonistiigi/binfmt:master
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Get built packages
+        uses: actions/download-artifact@v8
+        with:
+          path: ${{ github.workspace }}/dist/
+          pattern: toolkit-container-*-${{ github.run_id }}
+          merge-multiple: true
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Go Proxy
+        id: setup-go-proxy
+        uses: nv-gha-runners/setup-artifactory-go-proxy@main
+
+      - name: Build image
+        env:
+          IMAGE_NAME: ghcr.io/${{ env.LOWERCASE_REPO_OWNER }}/container-toolkit
+          VERSION: ${{ inputs.version }}-${{ matrix.arch }}
+          PUSH_ON_BUILD: "true"
+          GOPROXY: ${{ steps.setup-go-proxy.outputs.goproxy-url }}
+        run: |
+          echo "${VERSION}"
+          make -f deployments/container/Makefile build-application
+
+  create-manifest:
+    needs:
+      - application-image
+    runs-on: linux-amd64-cpu4
+    steps:
+      - uses: actions/checkout@v6
+        name: Check out code
+
+      - name: Calculate build vars
+        id: vars
+        run: |
+          echo "LOWERCASE_REPO_OWNER=$(echo "${GITHUB_REPOSITORY_OWNER}" | awk '{print tolower($0)}')" >> $GITHUB_ENV
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+        with:
+          image: tonistiigi/binfmt:master
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build Manifest
+        env:
+          MULTIARCH_IMAGE: ghcr.io/${{ env.LOWERCASE_REPO_OWNER }}/container-toolkit:${{ inputs.version }}
+        run: |
+          docker manifest create \
+            ${MULTIARCH_IMAGE} \
+            ghcr.io/${{ env.LOWERCASE_REPO_OWNER }}/container-toolkit:${{ inputs.version }}-amd64 \
+            ghcr.io/${{ env.LOWERCASE_REPO_OWNER }}/container-toolkit:${{ inputs.version }}-arm64
+          docker manifest push ${MULTIARCH_IMAGE}

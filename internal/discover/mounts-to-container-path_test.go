@@ -23,7 +23,7 @@ import (
 	testlog "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
-	"github.com/NVIDIA/nvidia-container-toolkit/internal/lookup"
+	"github.com/NVIDIA/nvidia-container-toolkit/pkg/lookup"
 )
 
 func TestMountsToContainerPath(t *testing.T) {
@@ -32,7 +32,8 @@ func TestMountsToContainerPath(t *testing.T) {
 		"ro",
 		"nosuid",
 		"nodev",
-		"bind",
+		"rbind",
+		"rprivate",
 	}
 
 	testCases := []struct {

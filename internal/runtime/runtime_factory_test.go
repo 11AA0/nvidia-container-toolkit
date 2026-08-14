@@ -28,8 +28,11 @@ import (
 	testlog "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
-	"github.com/NVIDIA/nvidia-container-toolkit/internal/config"
+	"github.com/NVIDIA/nvidia-container-toolkit/api/config/v1"
+	"github.com/NVIDIA/nvidia-container-toolkit/internal/config/image"
+	"github.com/NVIDIA/nvidia-container-toolkit/internal/info"
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/lookup/root"
+	"github.com/NVIDIA/nvidia-container-toolkit/internal/oci"
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/test"
 )
 
@@ -45,7 +48,7 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		log.Fatalf("error in test setup: could not get module root: %v", err)
 	}
-	testBinPath := filepath.Join(moduleRoot, "test", "bin")
+	testBinPath := filepath.Join(moduleRoot, "tests", "bin")
 
 	// Set the environment variables for the test
 	os.Setenv("PATH", test.PrependToPath(testBinPath, moduleRoot))
@@ -156,11 +159,287 @@ func TestFactoryMethod(t *testing.T) {
 
 			argv := []string{"--bundle", bundleDir, "create"}
 
-			_, err = newNVIDIAContainerRuntime(logger, tc.cfg, argv, driver)
+			_, err = newNVIDIAContainerRuntime(logger, driver, tc.cfg, argv)
 			if tc.expectedError {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestNewSpecModifier(t *testing.T) {
+	logger, _ := testlog.NewNullLogger()
+	driver := root.New(
+		root.WithDriverRoot("/nvidia/driver/root"),
+	)
+	testCases := []struct {
+		description  string
+		config       *config.Config
+		spec         *specs.Spec
+		expectedSpec *specs.Spec
+	}{
+		{
+			description: "csv mode removes nvidia-container-runtime-hook",
+			config: &config.Config{
+				NVIDIAContainerRuntimeConfig: config.RuntimeConfig{
+					Mode: "csv",
+				},
+			},
+			spec: &specs.Spec{
+				Hooks: &specs.Hooks{
+					Prestart: []specs.Hook{
+						{
+							Path: "/path/to/nvidia-container-runtime-hook",
+							Args: []string{"/path/to/nvidia-container-runtime-hook", "prestart"},
+						},
+					},
+				},
+			},
+			expectedSpec: &specs.Spec{
+				Hooks: &specs.Hooks{
+					Prestart: nil,
+				},
+			},
+		},
+		{
+			description: "csv mode removes nvidia-container-toolkit",
+			config: &config.Config{
+				NVIDIAContainerRuntimeConfig: config.RuntimeConfig{
+					Mode: "csv",
+				},
+			},
+			spec: &specs.Spec{
+				Hooks: &specs.Hooks{
+					Prestart: []specs.Hook{
+						{
+							Path: "/path/to/nvidia-container-toolkit",
+							Args: []string{"/path/to/nvidia-container-toolkit", "prestart"},
+						},
+					},
+				},
+			},
+			expectedSpec: &specs.Spec{
+				Hooks: &specs.Hooks{
+					Prestart: nil,
+				},
+			},
+		},
+		{
+			description: "cdi mode removes nvidia-container-runtime-hook",
+			config: &config.Config{
+				NVIDIAContainerRuntimeConfig: config.RuntimeConfig{
+					Mode: "cdi",
+				},
+			},
+			spec: &specs.Spec{
+				Hooks: &specs.Hooks{
+					Prestart: []specs.Hook{
+						{
+							Path: "/path/to/nvidia-container-runtime-hook",
+							Args: []string{"/path/to/nvidia-container-runtime-hook", "prestart"},
+						},
+					},
+				},
+			},
+			expectedSpec: &specs.Spec{
+				Hooks: &specs.Hooks{
+					Prestart: nil,
+				},
+			},
+		},
+		{
+			description: "cdi mode removes nvidia-container-toolkit",
+			config: &config.Config{
+				NVIDIAContainerRuntimeConfig: config.RuntimeConfig{
+					Mode: "cdi",
+				},
+			},
+			spec: &specs.Spec{
+				Hooks: &specs.Hooks{
+					Prestart: []specs.Hook{
+						{
+							Path: "/path/to/nvidia-container-toolkit",
+							Args: []string{"/path/to/nvidia-container-toolkit", "prestart"},
+						},
+					},
+				},
+			},
+			expectedSpec: &specs.Spec{
+				Hooks: &specs.Hooks{
+					Prestart: nil,
+				},
+			},
+		},
+		{
+			description: "legacy mode keeps nvidia-container-runtime-hook",
+			config: &config.Config{
+				NVIDIAContainerRuntimeConfig: config.RuntimeConfig{
+					Mode: "legacy",
+				},
+			},
+			spec: &specs.Spec{
+				Hooks: &specs.Hooks{
+					Prestart: []specs.Hook{
+						{
+							Path: "/path/to/nvidia-container-runtime-hook",
+							Args: []string{"/path/to/nvidia-container-runtime-hook", "prestart"},
+						},
+					},
+				},
+			},
+			expectedSpec: &specs.Spec{
+				Hooks: &specs.Hooks{
+					Prestart: []specs.Hook{
+						{
+							Path: "/path/to/nvidia-container-runtime-hook",
+							Args: []string{"/path/to/nvidia-container-runtime-hook", "prestart"},
+						},
+					},
+				},
+			},
+		},
+		{
+			description: "legacy mode keeps nvidia-container-toolkit",
+			config: &config.Config{
+				NVIDIAContainerRuntimeConfig: config.RuntimeConfig{
+					Mode: "legacy",
+				},
+			},
+			spec: &specs.Spec{
+				Hooks: &specs.Hooks{
+					Prestart: []specs.Hook{
+						{
+							Path: "/path/to/nvidia-container-toolkit",
+							Args: []string{"/path/to/nvidia-container-toolkit", "prestart"},
+						},
+					},
+				},
+			},
+			expectedSpec: &specs.Spec{
+				Hooks: &specs.Hooks{
+					Prestart: []specs.Hook{
+						{
+							Path: "/path/to/nvidia-container-toolkit",
+							Args: []string{"/path/to/nvidia-container-toolkit", "prestart"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			spec := &oci.SpecMock{
+				LoadFunc: func() (*specs.Spec, error) {
+					return tc.spec, nil
+				},
+			}
+			m, err := newSpecModifier(logger, driver, tc.config, spec)
+			require.NoError(t, err)
+
+			err = m.Modify(tc.spec)
+			require.NoError(t, err)
+			require.EqualValues(t, tc.expectedSpec, tc.spec)
+		})
+	}
+}
+
+func TestInitRuntimeModeAndImage(t *testing.T) {
+	logger, _ := testlog.NewNullLogger()
+
+	testCases := []struct {
+		decription       string
+		config           config.Config
+		ociSpec          oci.Spec
+		expectedError    error
+		expectedMode     info.RuntimeMode
+		assertValidImage func(*testing.T, *image.CUDA)
+	}{
+		{
+			decription: "image with NVIDIA visible devices",
+			config: config.Config{
+				AcceptEnvvarUnprivileged: true,
+				NVIDIAContainerRuntimeConfig: config.RuntimeConfig{
+					Mode: "nvml",
+				},
+			},
+			ociSpec: &oci.SpecMock{
+				LoadFunc: func() (*specs.Spec, error) {
+					s := &specs.Spec{
+						Process: &specs.Process{
+							Env: []string{"NVIDIA_VISIBLE_DEVICES=all"},
+						},
+					}
+					return s, nil
+				},
+			},
+			expectedMode: "nvml",
+			assertValidImage: func(t *testing.T, c *image.CUDA) {
+				require.EqualValues(t, []string{"all"}, c.VisibleDevices())
+			},
+		},
+		{
+			decription: "image with DOCKER_SWARM envars",
+			config: config.Config{
+				AcceptEnvvarUnprivileged: true,
+				SwarmResource:            "DOCKER_SWARM",
+				NVIDIAContainerRuntimeConfig: config.RuntimeConfig{
+					Mode: "nvml",
+				},
+			},
+			ociSpec: &oci.SpecMock{
+				LoadFunc: func() (*specs.Spec, error) {
+					s := &specs.Spec{
+						Process: &specs.Process{
+							Env: []string{"NVIDIA_VISIBLE_DEVICES=all", "DOCKER_SWARM=GPU1"},
+						},
+					}
+					return s, nil
+				},
+			},
+			expectedMode: "nvml",
+			assertValidImage: func(t *testing.T, c *image.CUDA) {
+				require.EqualValues(t, []string{"GPU1"}, c.VisibleDevices())
+			},
+		},
+		{
+			decription: "image with multiple DOCKER_SWARM envars",
+			config: config.Config{
+				AcceptEnvvarUnprivileged: true,
+				SwarmResource:            "DOCKER_SWARM,ANOTHER_SWARM",
+				NVIDIAContainerRuntimeConfig: config.RuntimeConfig{
+					Mode: "nvml",
+				},
+			},
+			ociSpec: &oci.SpecMock{
+				LoadFunc: func() (*specs.Spec, error) {
+					s := &specs.Spec{
+						Process: &specs.Process{
+							Env: []string{"NVIDIA_VISIBLE_DEVICES=all", "DOCKER_SWARM=GPU1", "ANOTHER_SWARM=GPU2"},
+						},
+					}
+					return s, nil
+				},
+			},
+			expectedMode: "nvml",
+			assertValidImage: func(t *testing.T, c *image.CUDA) {
+				require.EqualValues(t, []string{"GPU1", "GPU2"}, c.VisibleDevices())
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.decription, func(t *testing.T) {
+			mode, cudaImage, err := initRuntimeModeAndImage(logger, &tc.config, tc.ociSpec)
+
+			require.EqualValues(t, tc.expectedError, err)
+			require.EqualValues(t, tc.expectedMode, mode)
+
+			if tc.assertValidImage != nil {
+				tc.assertValidImage(t, cudaImage)
 			}
 		})
 	}

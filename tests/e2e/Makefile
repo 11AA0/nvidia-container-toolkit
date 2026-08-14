@@ -1,0 +1,45 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+.PHONY: test $(GINKGO_BIN)
+
+GINKGO_ARGS ?=
+LOG_ARTIFACTS_DIR ?= $(CURDIR)/e2e_logs
+
+GINKGO_BIN := $(CURDIR)/bin/ginkgo
+
+# If GINKGO_FOCUS is not set, run all tests
+# current available tests:
+# - nvidia-container-cli
+# - docker
+# - nvidia-cdi-refresh
+# - containerd
+GINKGO_FOCUS ?=
+
+test: $(GINKGO_BIN)
+	$(GINKGO_BIN) $(GINKGO_ARGS) -v --json-report ginkgo.json --focus="$(GINKGO_FOCUS)" ./tests/e2e/...
+
+# test-preinstalled runs the test cases against the version of the toolkit that
+# is already installed (and configured for docker) on the host.
+.PHONY: test-preinstalled
+test-preinstalled: test
+test-preinstalled: E2E_INSTALL_CTK = false
+test-preinstalled: E2E_SSH_HOST =
+
+GINKGO_VERSION = $(shell grep -Eo "github.com/onsi/ginkgo/v2.*$$" ./tests/go.mod | sed -e 's&github.com/onsi/ginkgo/v2[[:space:]]&&g')
+ginkgo: $(GINKGO_BIN)
+$(GINKGO_BIN):
+	mkdir -p $(CURDIR)/bin
+	GOBIN=$(CURDIR)/bin go install github.com/onsi/ginkgo/v2/ginkgo@$(GINKGO_VERSION)

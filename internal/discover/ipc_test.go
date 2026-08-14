@@ -22,7 +22,7 @@ import (
 	testlog "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
-	"github.com/NVIDIA/nvidia-container-toolkit/internal/lookup"
+	"github.com/NVIDIA/nvidia-container-toolkit/pkg/lookup"
 )
 
 func TestIPCMounts(t *testing.T) {
@@ -49,10 +49,10 @@ func TestIPCMounts(t *testing.T) {
 				HostPath: "/host/path",
 				Path:     "/host/path",
 				Options: []string{
-					"ro",
 					"nosuid",
 					"nodev",
-					"bind",
+					"rbind",
+					"rprivate",
 					"noexec",
 				},
 			},

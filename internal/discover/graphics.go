@@ -20,15 +20,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/config/image"
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/info/drm"
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/info/proc"
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/logger"
-	"github.com/NVIDIA/nvidia-container-toolkit/internal/lookup"
-	"github.com/NVIDIA/nvidia-container-toolkit/internal/lookup/cuda"
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/lookup/root"
+	"github.com/NVIDIA/nvidia-container-toolkit/pkg/lookup"
 )
 
 // NewDRMNodesDiscoverer returns a discoverer for the DRM device nodes associated with the specified visible devices.
@@ -36,21 +36,24 @@ import (
 // TODO: The logic for creating DRM devices should be consolidated between this
 // and the logic for generating CDI specs for a single device. This is only used
 // when applying OCI spec modifications to an incoming spec in "legacy" mode.
-func NewDRMNodesDiscoverer(logger logger.Interface, devices image.VisibleDevices, devRoot string, nvidiaCDIHookPath string) (Discover, error) {
+func NewDRMNodesDiscoverer(logger logger.Interface, devices image.VisibleDevices, devRoot string, hookCreator HookCreator) (Discover, error) {
 	drmDeviceNodes, err := newDRMDeviceDiscoverer(logger, devices, devRoot)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create DRM device discoverer: %v", err)
 	}
 
-	drmByPathSymlinks := newCreateDRMByPathSymlinks(logger, drmDeviceNodes, devRoot, nvidiaCDIHookPath)
+	drmByPathSymlinks := newCreateDRMByPathSymlinks(logger, drmDeviceNodes, devRoot, hookCreator)
 
 	discover := Merge(drmDeviceNodes, drmByPathSymlinks)
 	return discover, nil
 }
 
 // NewGraphicsMountsDiscoverer creates a discoverer for the mounts required by graphics tools such as vulkan.
-func NewGraphicsMountsDiscoverer(logger logger.Interface, driver *root.Driver, nvidiaCDIHookPath string) (Discover, error) {
-	libraries := newGraphicsLibrariesDiscoverer(logger, driver, nvidiaCDIHookPath)
+func NewGraphicsMountsDiscoverer(logger logger.Interface, driver *root.Driver, hookCreator HookCreator) (Discover, error) {
+	libraries, err := newGraphicsLibrariesDiscoverer(logger, driver, hookCreator)
+	if err != nil {
+		return nil, fmt.Errorf("failed to construct discoverer for graphics libraries: %w", err)
+	}
 
 	configs := NewMounts(
 		logger,
@@ -60,9 +63,11 @@ func NewGraphicsMountsDiscoverer(logger logger.Interface, driver *root.Driver, n
 			"glvnd/egl_vendor.d/10_nvidia.json",
 			"egl/egl_external_platform.d/15_nvidia_gbm.json",
 			"egl/egl_external_platform.d/10_nvidia_wayland.json",
+			"egl/egl_external_platform.d/09_nvidia_wayland2.json",
 			"nvidia/nvoptix.bin",
 			"X11/xorg.conf.d/10-nvidia.conf",
 			"X11/xorg.conf.d/nvidia-drm-outputclass.conf",
+			"OpenCL/vendors/nvidia.icd",
 		},
 	)
 
@@ -81,28 +86,49 @@ func NewGraphicsMountsDiscoverer(logger logger.Interface, driver *root.Driver, n
 // vulkan ICD files are at {{ .driverRoot }}/vulkan instead of in /etc/vulkan.
 func newVulkanConfigsDiscover(logger logger.Interface, driver *root.Driver) Discover {
 	locator := lookup.First(driver.Configs(), driver.Files())
+
+	required := []string{
+		"vulkan/icd.d/nvidia_icd.json",
+		"vulkan/icd.d/nvidia_layers.json",
+		"vulkan/implicit_layer.d/nvidia_layers.json",
+	}
+	// For some RPM-based driver packages, the vulkan ICD files are installed to
+	// /usr/share/vulkan/icd.d/nvidia_icd.%{_target_cpu}.json
+	// We also include this in the list of candidates for the ICD file.
+	switch runtime.GOARCH {
+	case "amd64":
+		required = append(required, "vulkan/icd.d/nvidia_icd.x86_64.json")
+	case "arm64":
+		required = append(required, "vulkan/icd.d/nvidia_icd.aarch64.json")
+	}
 	return &mountsToContainerPath{
-		logger:  logger,
-		locator: locator,
-		required: []string{
-			"vulkan/icd.d/nvidia_icd.json",
-			"vulkan/icd.d/nvidia_layers.json",
-			"vulkan/implicit_layer.d/nvidia_layers.json",
-		},
+		logger:        logger,
+		locator:       locator,
+		required:      required,
 		containerRoot: "/etc",
 	}
 }
 
 type graphicsDriverLibraries struct {
 	Discover
-	logger            logger.Interface
-	nvidiaCDIHookPath string
+	logger        logger.Interface
+	hookCreator   HookCreator
+	driverVersion string
 }
 
 var _ Discover = (*graphicsDriverLibraries)(nil)
 
-func newGraphicsLibrariesDiscoverer(logger logger.Interface, driver *root.Driver, nvidiaCDIHookPath string) Discover {
-	cudaLibRoot, cudaVersionPattern := getCUDALibRootAndVersionPattern(logger, driver)
+func newGraphicsLibrariesDiscoverer(logger logger.Interface, driver *root.Driver, hookCreator HookCreator) (Discover, error) {
+	// We use the driver version as a suffix for matching libraries that are
+	// part of the driver.
+	driverVersion, err := driver.Version()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get driver version: %w", err)
+	}
+	cudaLibRoots, err := driver.GetDriverLibDirectories()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get libcuda.so parent directory: %w", err)
+	}
 
 	libraries := NewMounts(
 		logger,
@@ -113,14 +139,15 @@ func newGraphicsLibrariesDiscoverer(logger logger.Interface, driver *root.Driver
 			// have the RM version. Use the *.* pattern to match X.Y.Z versions.
 			"libnvidia-egl-gbm.so.*.*",
 			"libnvidia-egl-wayland.so.*.*",
+			"libnvidia-egl-wayland2.so.*.*",
 			// We include the following libraries to have them available for
 			// symlink creation below:
 			// If CDI injection is used, these should already be detected as:
 			// * libnvidia-allocator.so.RM_VERSION
 			// * libnvidia-vulkan-producer.so.RM_VERSION
 			// but need to be handled for the legacy case too.
-			"libnvidia-allocator.so." + cudaVersionPattern,
-			"libnvidia-vulkan-producer.so." + cudaVersionPattern,
+			"libnvidia-allocator.so." + driverVersion,
+			"libnvidia-vulkan-producer.so." + driverVersion,
 		},
 	)
 
@@ -129,21 +156,22 @@ func newGraphicsLibrariesDiscoverer(logger logger.Interface, driver *root.Driver
 		lookup.NewFileLocator(
 			lookup.WithLogger(logger),
 			lookup.WithRoot(driver.Root),
-			lookup.WithSearchPaths(buildXOrgSearchPaths(cudaLibRoot)...),
+			lookup.WithSearchPaths(buildXOrgSearchPaths(cudaLibRoots...)...),
 			lookup.WithCount(1),
 		),
 		driver.Root,
 		[]string{
 			"nvidia_drv.so",
-			"libglxserver_nvidia.so." + cudaVersionPattern,
+			"libglxserver_nvidia.so." + driverVersion,
 		},
 	)
 
 	return &graphicsDriverLibraries{
-		Discover:          Merge(libraries, xorgLibraries),
-		logger:            logger,
-		nvidiaCDIHookPath: nvidiaCDIHookPath,
-	}
+		Discover:      Merge(libraries, xorgLibraries),
+		logger:        logger,
+		hookCreator:   hookCreator,
+		driverVersion: driverVersion,
+	}, nil
 }
 
 // Mounts discovers the required libraries and filters out libnvidia-allocator.so.
@@ -203,45 +231,27 @@ func (d graphicsDriverLibraries) Hooks() ([]Hook, error) {
 		return nil, nil
 	}
 
-	hooks := CreateCreateSymlinkHook(d.nvidiaCDIHookPath, links)
+	hook := d.hookCreator.Create("create-symlinks", links...)
 
-	return hooks.Hooks()
+	return hook.Hooks()
 }
 
 // isDriverLibrary checks whether the specified filename is a specific driver library.
 func (d graphicsDriverLibraries) isDriverLibrary(filename string, libraryName string) bool {
-	// TODO: Instead of `.*.*` we could use the driver version.
-	pattern := strings.TrimSuffix(libraryName, ".") + ".*.*"
-	match, _ := filepath.Match(pattern, filename)
-	return match
+	return filename == strings.TrimSuffix(libraryName, ".")+"."+d.driverVersion
 }
 
-// getCUDALibRootAndVersionPattern returns the parent directory and the version
-// suffix of the libcuda.so.*.* library at the driver root.
-// If the library cannot be located an empty root is returned.
-// If the version string cannot be extracted, the generic *.* pattern is returned.
-func getCUDALibRootAndVersionPattern(logger logger.Interface, driver *root.Driver) (string, string) {
-	libCudaPaths, err := cuda.New(
-		driver.Libraries(),
-	).Locate(".*.*")
-	if err != nil {
-		logger.Warningf("failed to locate libcuda.so: %v; using *.*", err)
-		return "", "*.*"
+// buildXOrgSearchPaths returns search paths from all roots
+func buildXOrgSearchPaths(roots ...string) []string {
+	var paths []string
+	for _, root := range roots {
+		paths = append(paths, buildXOrgSearchPathsAtRoot(root)...)
 	}
-	libcudaPath := libCudaPaths[0]
-
-	libRoot := filepath.Dir(libcudaPath)
-	version := strings.TrimPrefix(filepath.Base(libcudaPath), "libcuda.so.")
-	if version == "" {
-		logger.Warningf("failed to extract version from %v; using *.*", libcudaPath)
-		version = "*.*"
-	}
-
-	return driver.RelativeToRoot(libRoot), version
+	return paths
 }
 
-// buildXOrgSearchPaths returns the ordered list of search paths for XOrg files.
-func buildXOrgSearchPaths(libRoot string) []string {
+// buildXOrgSearchPathsAtRoot returns the ordered list of search paths for XOrg files.
+func buildXOrgSearchPathsAtRoot(libRoot string) []string {
 	var paths []string
 	if libRoot != "" {
 		paths = append(paths,
@@ -275,19 +285,19 @@ func buildXOrgSearchPaths(libRoot string) []string {
 
 type drmDevicesByPath struct {
 	None
-	logger            logger.Interface
-	nvidiaCDIHookPath string
-	devRoot           string
-	devicesFrom       Discover
+	logger      logger.Interface
+	hookCreator HookCreator
+	devRoot     string
+	devicesFrom Discover
 }
 
 // newCreateDRMByPathSymlinks creates a discoverer for a hook to create the by-path symlinks for DRM devices discovered by the specified devices discoverer
-func newCreateDRMByPathSymlinks(logger logger.Interface, devices Discover, devRoot string, nvidiaCDIHookPath string) Discover {
+func newCreateDRMByPathSymlinks(logger logger.Interface, devices Discover, devRoot string, hookCreator HookCreator) Discover {
 	d := drmDevicesByPath{
-		logger:            logger,
-		nvidiaCDIHookPath: nvidiaCDIHookPath,
-		devRoot:           devRoot,
-		devicesFrom:       devices,
+		logger:      logger,
+		hookCreator: hookCreator,
+		devRoot:     devRoot,
+		devicesFrom: devices,
 	}
 
 	return &d
@@ -310,18 +320,9 @@ func (d drmDevicesByPath) Hooks() ([]Hook, error) {
 		return nil, nil
 	}
 
-	var args []string
-	for _, l := range links {
-		args = append(args, "--link", l)
-	}
+	hook := d.hookCreator.Create("create-symlinks", links...)
 
-	hook := CreateNvidiaCDIHook(
-		d.nvidiaCDIHookPath,
-		"create-symlinks",
-		args...,
-	)
-
-	return []Hook{hook}, nil
+	return hook.Hooks()
 }
 
 // getSpecificLinkArgs returns the required specific links that need to be created

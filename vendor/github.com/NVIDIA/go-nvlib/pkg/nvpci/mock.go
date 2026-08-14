@@ -79,7 +79,14 @@ func (m *MockNvpci) AddMockA100(address string, numaNode int, sriov *SriovInfo) 
 		return err
 	}
 
-	err = createNVIDIAgpuFiles(deviceDir)
+	err = CreateMockA100SysfsFiles(deviceDir)
+	if err != nil {
+		return err
+	}
+
+	vfioDev := filepath.Join(deviceDir, "vfio-dev")
+	vfioFD := filepath.Join(vfioDev, "vfio8")
+	err = os.MkdirAll(vfioFD, 0755)
 	if err != nil {
 		return err
 	}
@@ -98,7 +105,7 @@ func (m *MockNvpci) AddMockA100(address string, numaNode int, sriov *SriovInfo) 
 	if err != nil {
 		return err
 	}
-	_, err = numa.WriteString(fmt.Sprintf("%v", numaNode))
+	_, err = fmt.Fprintf(numa, "%v", numaNode)
 	if err != nil {
 		return err
 	}
@@ -132,12 +139,16 @@ func (m *MockNvpci) AddMockA100(address string, numaNode int, sriov *SriovInfo) 
 	return nil
 }
 
-func createNVIDIAgpuFiles(deviceDir string) error {
+// CreateMockA100SysfsFiles populates deviceDir with the sysfs attribute files
+// of an A100-like GPU (vendor, class, device, subsystem ids, driver symlink,
+// config space, and resources). It is shared by mock packages that need an
+// NVIDIA PCI device fixture, such as nvmdev.
+func CreateMockA100SysfsFiles(deviceDir string) error {
 	vendor, err := os.Create(filepath.Join(deviceDir, "vendor"))
 	if err != nil {
 		return err
 	}
-	_, err = vendor.WriteString(fmt.Sprintf("0x%x", PCINvidiaVendorID))
+	_, err = fmt.Fprintf(vendor, "0x%x", PCINvidiaVendorID)
 	if err != nil {
 		return err
 	}
@@ -146,7 +157,7 @@ func createNVIDIAgpuFiles(deviceDir string) error {
 	if err != nil {
 		return err
 	}
-	_, err = class.WriteString(fmt.Sprintf("0x%x", PCI3dControllerClass))
+	_, err = fmt.Fprintf(class, "0x%x", PCI3dControllerClass)
 	if err != nil {
 		return err
 	}
@@ -156,6 +167,24 @@ func createNVIDIAgpuFiles(deviceDir string) error {
 		return err
 	}
 	_, err = device.WriteString("0x20bf")
+	if err != nil {
+		return err
+	}
+
+	subsystemVendor, err := os.Create(filepath.Join(deviceDir, "subsystem_vendor"))
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(subsystemVendor, "0x%x", PCINvidiaVendorID)
+	if err != nil {
+		return err
+	}
+
+	subsystemDevice, err := os.Create(filepath.Join(deviceDir, "subsystem_device"))
+	if err != nil {
+		return err
+	}
+	_, err = subsystemDevice.WriteString("0x16c0")
 	if err != nil {
 		return err
 	}
@@ -188,7 +217,7 @@ func createNVIDIAgpuFiles(deviceDir string) error {
 	if err != nil {
 		return err
 	}
-	_, err = resource.WriteString(fmt.Sprintf("0x%x 0x%x 0x%x", bar0[0], bar0[1], bar0[2]))
+	_, err = fmt.Fprintf(resource, "0x%x 0x%x 0x%x", bar0[0], bar0[1], bar0[2])
 	if err != nil {
 		return err
 	}
@@ -226,7 +255,7 @@ func (m *MockNvpci) createVf(pfAddress string, id, iommu_group, numaNode int) er
 		return err
 	}
 
-	err = createNVIDIAgpuFiles(deviceDir)
+	err = CreateMockA100SysfsFiles(deviceDir)
 	if err != nil {
 		return err
 	}
@@ -246,7 +275,7 @@ func (m *MockNvpci) createVf(pfAddress string, id, iommu_group, numaNode int) er
 	if err != nil {
 		return err
 	}
-	_, err = numa.WriteString(fmt.Sprintf("%v", numaNode))
+	_, err = fmt.Fprintf(numa, "%v", numaNode)
 	if err != nil {
 		return err
 	}

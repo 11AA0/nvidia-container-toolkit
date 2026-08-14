@@ -21,21 +21,33 @@ import (
 	"github.com/NVIDIA/nvidia-container-toolkit/pkg/config/toml"
 )
 
-const (
-	defaultRuntimeType = "io.containerd.runc.v2"
-)
-
 type builder struct {
 	logger               logger.Interface
 	configSource         toml.Loader
-	path                 string
-	runtimeType          string
+	configVersion        int
 	useLegacyConfig      bool
+	topLevelConfigPath   string
+	runtimeType          string
 	containerAnnotations []string
+
+	containerToHostPathMap map[string]string
 }
 
 // Option defines a function that can be used to configure the config builder
 type Option func(*builder)
+
+// WithContainerPathAsHostPath maps a given container path to a host path.
+func WithContainerPathAsHostPath(containerPath string, hostPath string) Option {
+	return func(b *builder) {
+		if containerPath == "" || hostPath == "" || containerPath == hostPath {
+			return
+		}
+		if b.containerToHostPathMap == nil {
+			b.containerToHostPathMap = make(map[string]string)
+		}
+		b.containerToHostPathMap[containerPath] = hostPath
+	}
+}
 
 // WithLogger sets the logger for the config builder
 func WithLogger(logger logger.Interface) Option {
@@ -44,10 +56,10 @@ func WithLogger(logger logger.Interface) Option {
 	}
 }
 
-// WithPath sets the path for the config builder
-func WithPath(path string) Option {
+// WithTopLevelConfigPath sets the path for the top-level containerd config.
+func WithTopLevelConfigPath(path string) Option {
 	return func(b *builder) {
-		b.path = path
+		b.topLevelConfigPath = path
 	}
 }
 
@@ -65,10 +77,17 @@ func WithRuntimeType(runtimeType string) Option {
 	}
 }
 
-// WithUseLegacyConfig sets the useLegacyConfig flag for the config builder
+// WithUseLegacyConfig sets the useLegacyConfig flag for the config builder.
 func WithUseLegacyConfig(useLegacyConfig bool) Option {
 	return func(b *builder) {
 		b.useLegacyConfig = useLegacyConfig
+	}
+}
+
+// WithConfigVersion sets the config version for the config builder
+func WithConfigVersion(configVersion int) Option {
+	return func(b *builder) {
+		b.configVersion = configVersion
 	}
 }
 

@@ -13,10 +13,10 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/NVIDIA/nvidia-container-toolkit/internal/config"
+	"github.com/NVIDIA/nvidia-container-toolkit/api/config/v1"
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/info"
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/logger"
-	"github.com/NVIDIA/nvidia-container-toolkit/internal/lookup"
+	"github.com/NVIDIA/nvidia-container-toolkit/pkg/lookup"
 )
 
 var (
@@ -49,13 +49,13 @@ func getCLIPath(config config.ContainerCLIConfig) string {
 
 	path, err := exec.LookPath("nvidia-container-cli")
 	if err != nil {
-		log.Panicln("couldn't find binary nvidia-container-cli in", os.Getenv("PATH"), ":", err)
+		log.Panicf("couldn't find binary nvidia-container-cli in PATH: %v", err)
 	}
 	return path
 }
 
 // getRootfsPath returns an absolute path. We don't need to resolve symlinks for now.
-func getRootfsPath(config containerConfig) string {
+func getRootfsPath(config *containerConfig) string {
 	rootfs, err := filepath.Abs(config.Rootfs)
 	if err != nil {
 		log.Panicln(err)
@@ -82,8 +82,8 @@ func doPrestart() {
 		return
 	}
 
-	if !hook.NVIDIAContainerRuntimeHookConfig.SkipModeDetection && info.ResolveAutoMode(&logInterceptor{}, hook.NVIDIAContainerRuntimeConfig.Mode, container.Image) != "legacy" {
-		log.Panicln("invoking the NVIDIA Container Runtime Hook directly (e.g. specifying the docker --gpus flag) is not supported. Please use the NVIDIA Container Runtime (e.g. specify the --runtime=nvidia flag) instead.")
+	if err := hook.assertModeIsLegacy(); err != nil {
+		log.Panicf("%v", err)
 	}
 
 	rootfs := getRootfsPath(container)
@@ -113,6 +113,8 @@ func doPrestart() {
 		args = append(args, fmt.Sprintf("--user=%s", cli.User))
 	}
 	args = append(args, "configure")
+
+	args = append(args, hook.nvidiaContainerCliCUDACompatModeFlags()...)
 
 	if ldconfigPath := cli.NormalizeLDConfigPath(); ldconfigPath != "" {
 		args = append(args, fmt.Sprintf("--ldconfig=%s", ldconfigPath))
@@ -154,7 +156,7 @@ func doPrestart() {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
+	fmt.Fprintf(os.Stderr, "Usage of nvidia-container-runtime-hook:\n")
 	flag.PrintDefaults()
 	fmt.Fprintf(os.Stderr, "\nCommands:\n")
 	fmt.Fprintf(os.Stderr, "  prestart\n        run the prestart hook\n")

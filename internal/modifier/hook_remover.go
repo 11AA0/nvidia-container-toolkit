@@ -21,7 +21,7 @@ import (
 
 	"github.com/opencontainers/runtime-spec/specs-go"
 
-	"github.com/NVIDIA/nvidia-container-toolkit/internal/config"
+	"github.com/NVIDIA/nvidia-container-toolkit/api/config/v1"
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/logger"
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/oci"
 )
@@ -32,6 +32,13 @@ type nvidiaContainerRuntimeHookRemover struct {
 }
 
 var _ oci.SpecModifier = (*nvidiaContainerRuntimeHookRemover)(nil)
+
+// newNvidiaContainerRuntimeHookRemover creates a modifier that removes any NVIDIA Container Runtime hooks from the provided spec.
+func (f *Factory) newNvidiaContainerRuntimeHookRemover() oci.SpecModifier {
+	return nvidiaContainerRuntimeHookRemover{
+		logger: f.logger,
+	}
+}
 
 // Modify removes any NVIDIA Container Runtime hooks from the provided spec
 func (m nvidiaContainerRuntimeHookRemover) Modify(spec *specs.Spec) error {

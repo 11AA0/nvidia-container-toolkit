@@ -17,13 +17,14 @@
 package main
 
 import (
+	"context"
 	"os"
 
 	"github.com/sirupsen/logrus"
 
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/info"
 
-	cli "github.com/urfave/cli/v2"
+	cli "github.com/urfave/cli/v3"
 
 	"github.com/NVIDIA/nvidia-container-toolkit/cmd/nvidia-cdi-hook/commands"
 )
@@ -44,48 +45,43 @@ func main() {
 	opts := options{}
 
 	// Create the top-level CLI
-	c := cli.NewApp()
-	c.Name = "NVIDIA CDI Hook"
-	c.UseShortOptionHandling = true
-	c.EnableBashCompletion = true
-	c.Usage = "Command to structure files for usage inside a container, called as hooks from a container runtime, defined in a CDI yaml file"
-	c.Version = info.GetVersionString()
-
-	// Setup the flags for this command
-	c.Flags = []cli.Flag{
-		&cli.BoolFlag{
-			Name:        "debug",
-			Aliases:     []string{"d"},
-			Usage:       "Enable debug-level logging",
-			Destination: &opts.Debug,
-			EnvVars:     []string{"NVIDIA_CDI_DEBUG"},
+	c := commands.ConfigureCDIHookCommand(logger, &cli.Command{
+		Name:    "NVIDIA CDI Hook",
+		Usage:   "Command to structure files for usage inside a container, called as hooks from a container runtime, defined in a CDI yaml file",
+		Version: info.GetVersionString(),
+		// Set log-level for all subcommands
+		Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+			logLevel := logrus.InfoLevel
+			if opts.Debug {
+				logLevel = logrus.DebugLevel
+			}
+			if opts.Quiet {
+				logLevel = logrus.ErrorLevel
+			}
+			logger.SetLevel(logLevel)
+			return ctx, nil
 		},
-		&cli.BoolFlag{
-			Name:        "quiet",
-			Usage:       "Suppress all output except for errors; overrides --debug",
-			Destination: &opts.Quiet,
-			EnvVars:     []string{"NVIDIA_CDI_QUIET"},
+		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:        "debug",
+				Aliases:     []string{"d"},
+				Usage:       "Enable debug-level logging",
+				Destination: &opts.Debug,
+				// TODO: Support for NVIDIA_CDI_DEBUG is deprecated and NVIDIA_CTK_DEBUG should be used instead.
+				Sources: cli.EnvVars("NVIDIA_CTK_DEBUG", "NVIDIA_CDI_DEBUG"),
+			},
+			&cli.BoolFlag{
+				Name:        "quiet",
+				Usage:       "Suppress all output except for errors; overrides --debug",
+				Destination: &opts.Quiet,
+				// TODO: Support for NVIDIA_CDI_QUIET is deprecated and NVIDIA_CTK_QUIET should be used instead.
+				Sources: cli.EnvVars("NVIDIA_CTK_QUIET", "NVIDIA_CDI_QUIET"),
+			},
 		},
-	}
-
-	// Set log-level for all subcommands
-	c.Before = func(c *cli.Context) error {
-		logLevel := logrus.InfoLevel
-		if opts.Debug {
-			logLevel = logrus.DebugLevel
-		}
-		if opts.Quiet {
-			logLevel = logrus.ErrorLevel
-		}
-		logger.SetLevel(logLevel)
-		return nil
-	}
-
-	// Define the subcommands
-	c.Commands = commands.New(logger)
+	})
 
 	// Run the CLI
-	err := c.Run(os.Args)
+	err := c.Run(context.Background(), os.Args)
 	if err != nil {
 		logger.Errorf("%v", err)
 		os.Exit(1)

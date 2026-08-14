@@ -19,73 +19,32 @@ package modifier
 import (
 	"fmt"
 
-	"github.com/NVIDIA/nvidia-container-toolkit/internal/config"
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/config/image"
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/cuda"
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/logger"
-	"github.com/NVIDIA/nvidia-container-toolkit/internal/modifier/cdi"
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/oci"
-	"github.com/NVIDIA/nvidia-container-toolkit/internal/platform-support/tegra/csv"
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/requirements"
-	"github.com/NVIDIA/nvidia-container-toolkit/pkg/nvcdi"
 )
 
-// NewCSVModifier creates a modifier that applies modications to an OCI spec if required by the runtime wrapper.
+// newCSVModifier creates a modifier that applies modications to an OCI spec if required by the runtime wrapper.
 // The modifications are defined by CSV MountSpecs.
-func NewCSVModifier(logger logger.Interface, cfg *config.Config, container image.CUDA) (oci.SpecModifier, error) {
-	if devices := container.VisibleDevicesFromEnvVar(); len(devices) == 0 {
-		logger.Infof("No modification required; no devices requested")
+func (f *Factory) newCSVModifier() (oci.SpecModifier, error) {
+	devices := withUniqueDevices(csvDevices(*f.image)).DeviceRequests()
+	if len(devices) == 0 {
+		f.logger.Infof("No modification required; no devices requested")
 		return nil, nil
 	}
-	logger.Infof("Constructing modifier from config: %+v", *cfg)
+	f.logger.Infof("Constructing modifier from config: %+v", *f.cfg)
 
-	if err := checkRequirements(logger, container); err != nil {
+	if err := checkRequirements(f.logger, f.image); err != nil {
 		return nil, fmt.Errorf("requirements not met: %v", err)
 	}
 
-	csvFiles, err := csv.GetFileList(cfg.NVIDIAContainerRuntimeConfig.Modes.CSV.MountSpecPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get list of CSV files: %v", err)
-	}
-
-	if container.Getenv(image.EnvVarNvidiaRequireJetpack) != "csv-mounts=all" {
-		csvFiles = csv.BaseFilesOnly(csvFiles)
-	}
-
-	cdilib, err := nvcdi.New(
-		nvcdi.WithLogger(logger),
-		nvcdi.WithDriverRoot(cfg.NVIDIAContainerCLIConfig.Root),
-		nvcdi.WithNVIDIACDIHookPath(cfg.NVIDIACTKConfig.Path),
-		nvcdi.WithMode(nvcdi.ModeCSV),
-		nvcdi.WithCSVFiles(csvFiles),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to construct CDI library: %v", err)
-	}
-
-	spec, err := cdilib.GetSpec()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get CDI spec: %v", err)
-	}
-
-	cdiModifier, err := cdi.New(
-		cdi.WithLogger(logger),
-		cdi.WithSpec(spec.Raw()),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to construct CDI modifier: %v", err)
-	}
-
-	modifiers := Merge(
-		nvidiaContainerRuntimeHookRemover{logger},
-		cdiModifier,
-	)
-
-	return modifiers, nil
+	return f.newAutomaticCDISpecModifier(devices)
 }
 
-func checkRequirements(logger logger.Interface, image image.CUDA) error {
-	if image.HasDisableRequire() {
+func checkRequirements(logger logger.Interface, image *image.CUDA) error {
+	if image == nil || image.HasDisableRequire() {
 		// TODO: We could print the real value here instead
 		logger.Debugf("NVIDIA_DISABLE_REQUIRE=%v; skipping requirement checks", true)
 		return nil
@@ -114,4 +73,15 @@ func checkRequirements(logger logger.Interface, image image.CUDA) error {
 	}
 
 	return r.Assert()
+}
+
+type csvDevices image.CUDA
+
+func (d csvDevices) DeviceRequests() []string {
+	var devices []string
+	i := (image.CUDA)(d)
+	for _, deviceID := range i.VisibleDevices() {
+		devices = append(devices, "mode=csv,id="+deviceID)
+	}
+	return devices
 }

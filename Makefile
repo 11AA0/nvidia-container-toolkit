@@ -39,7 +39,7 @@ CMDS := $(patsubst ./cmd/%/,%,$(sort $(dir $(wildcard ./cmd/*/))))
 CMD_TARGETS := $(patsubst %,cmd-%, $(CMDS))
 
 CHECK_TARGETS := lint
-MAKE_TARGETS := binaries build check fmt test examples cmds coverage generate licenses vendor check-vendor $(CHECK_TARGETS)
+MAKE_TARGETS := binaries build check fmt test examples cmds coverage generate licenses third-party-notices check-third-party-notices vendor check-vendor $(CHECK_TARGETS)
 
 TARGETS := $(MAKE_TARGETS) $(EXAMPLE_TARGETS) $(CMD_TARGETS)
 
@@ -74,7 +74,7 @@ examples: $(EXAMPLE_TARGETS)
 $(EXAMPLE_TARGETS): example-%:
 	go build ./examples/$(*)
 
-all: check test build binary
+all: check test build binaries
 check: $(CHECK_TARGETS)
 
 # Apply go fmt to the codebase
@@ -90,24 +90,58 @@ goimports:
 lint:
 	golangci-lint run ./...
 
-vendor:
-	go mod tidy
-	go mod vendor
-	go mod verify
+vendor:  | mod-tidy mod-vendor mod-verify
+
+mod-tidy:
+	@for mod in $$(find . -name go.mod -not -path "./testdata/*" -not -path "./third_party/*"); do \
+	    echo "Tidying $$mod..."; ( \
+	        cd $$(dirname $$mod) && go mod tidy \
+            ) || exit 1; \
+	done
+
+mod-vendor:
+	@for mod in $$(find . -name go.mod -not -path "./testdata/*" -not -path "./third_party/*" -not -path "./deployments/*"); do \
+		echo "Vendoring $$mod..."; ( \
+			cd $$(dirname $$mod) && go mod vendor \
+			) || exit 1; \
+	done
+
+mod-verify:
+	@for mod in $$(find . -name go.mod -not -path "./testdata/*" -not -path "./third_party/*"); do \
+	    echo "Verifying $$mod..."; ( \
+	        cd $$(dirname $$mod) && go mod verify | sed 's/^/  /g' \
+	    ) || exit 1; \
+	done
+
 
 check-vendor: vendor
-	git diff --quiet HEAD -- go.mod go.sum vendor
+	git diff --exit-code HEAD -- go.mod go.sum vendor
 
 licenses:
 	go-licenses csv $(MODULE)/...
 
+DEVEL_DIR := $(CURDIR)/deployments/devel
+
+bin/go-licenses: $(DEVEL_DIR)/go.mod $(DEVEL_DIR)/go.sum
+	GOBIN=$(CURDIR)/bin go -C $(DEVEL_DIR) install -mod=readonly github.com/google/go-licenses/v2
+
+third-party-notices: bin/go-licenses
+	@bash hack/generate-third-party-notices.sh
+
+check-third-party-notices: third-party-notices
+	@echo "- Checking if THIRD_PARTY_NOTICES.md is up to date..."
+	@git ls-files --error-unmatch THIRD_PARTY_NOTICES.md >/dev/null 2>&1 \
+		|| { echo "ERROR: THIRD_PARTY_NOTICES.md is not tracked. Run 'make third-party-notices' and commit the result."; exit 1; }
+	@git diff --exit-code HEAD -- THIRD_PARTY_NOTICES.md \
+		|| { echo "ERROR: THIRD_PARTY_NOTICES.md is stale. Run 'make third-party-notices' and commit the change."; exit 1; }
+
 COVERAGE_FILE := coverage.out
 test: build cmds
-	go test -coverprofile=$(COVERAGE_FILE) $(MODULE)/...
+	go test -coverprofile=$(COVERAGE_FILE).with-mocks $(MODULE)/...
 
 coverage: test
-	cat $(COVERAGE_FILE) | grep -v "_mock.go" > $(COVERAGE_FILE).no-mocks
-	go tool cover -func=$(COVERAGE_FILE).no-mocks
+	cat $(COVERAGE_FILE).with-mocks | grep -v "_mock.go" > $(COVERAGE_FILE)
+	go tool cover -func=$(COVERAGE_FILE)
 
 generate:
 	go generate $(MODULE)/...

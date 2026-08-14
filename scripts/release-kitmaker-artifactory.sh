@@ -160,7 +160,7 @@ function upload_archive() {
     props+=("platform=${os}-${arch}")
     props+=("changelist=${GIT_COMMIT_SHORT}")
     props+=("branch=${branch}")
-    props+=("source=https://gitlab.com/nvidia/container-toolkit/container-toolkit")
+    props+=("source=https://github.com/NVIDIA/nvidia-container-toolkit")
     # Package properties:
     props+=("package.epoch=${IMAGE_EPOCH}")
     props+=("package.version=${VERSION}")
@@ -193,7 +193,7 @@ function upload_archive() {
 component="nvidia_container_toolkit"
 version="${VERSION%~rc.*}"
 version_suffix=$(date -r "${IMAGE_EPOCH}" '+%Y.%m.%d.%s' || date -d @"${IMAGE_EPOCH}" '+%Y.%m.%d.%s')
-kitmaker_version="${VERSION%~rc.*}.${version_suffix}"
+kitmaker_version="${VERSION%~*}.${version_suffix}"
 kitmaker_os="linux"
 
 # create_and_upload creates a kitmaker archive for the specified component, os, and arch and uploads it.
@@ -221,6 +221,3 @@ create_and_upload "main" "sbsa" "ubuntu18.04-arm64" "centos7-aarch64"
 # Create archive for aarch64 linux distributions
 # NOTE: From the perspective of the NVIDIA Container Toolkit aarch64 is just a duplicate of sbsa
 create_and_upload "main" "aarch64" "ubuntu18.04-arm64" "centos7-aarch64"
-
-# Create archive for ppc64le linux distributions
-create_and_upload "main" "ppc64le" "ubuntu18.04-ppc64le" "centos8-ppc64le"

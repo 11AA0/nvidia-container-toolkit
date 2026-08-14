@@ -17,17 +17,21 @@
 package dgpu
 
 import (
+	"github.com/NVIDIA/nvidia-container-toolkit/internal/discover"
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/logger"
+	"github.com/NVIDIA/nvidia-container-toolkit/internal/lookup/root"
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/nvcaps"
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/nvsandboxutils"
 )
 
 type options struct {
-	logger            logger.Interface
-	devRoot           string
-	nvidiaCDIHookPath string
+	logger      logger.Interface
+	driver      *root.Driver
+	hookCreator discover.HookCreator
 
-	isMigDevice bool
+	isMigDevice   bool
+	migAttributes []string
+
 	// migCaps stores the MIG capabilities for the system.
 	// If MIG is not available, this is nil.
 	migCaps      nvcaps.MigCaps
@@ -38,10 +42,10 @@ type options struct {
 
 type Option func(*options)
 
-// WithDevRoot sets the root where /dev is located.
-func WithDevRoot(root string) Option {
+// WithDriver sets the driver root.
+func WithDriver(driver *root.Driver) Option {
 	return func(l *options) {
-		l.devRoot = root
+		l.driver = driver
 	}
 }
 
@@ -52,10 +56,10 @@ func WithLogger(logger logger.Interface) Option {
 	}
 }
 
-// WithNVIDIACDIHookPath sets the path to the NVIDIA Container Toolkit CLI path for the library
-func WithNVIDIACDIHookPath(path string) Option {
+// WithHookCreator sets the hook creator for the library
+func WithHookCreator(hookCreator discover.HookCreator) Option {
 	return func(l *options) {
-		l.nvidiaCDIHookPath = path
+		l.hookCreator = hookCreator
 	}
 }
 

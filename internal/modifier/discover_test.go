@@ -24,6 +24,7 @@ import (
 	testlog "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/NVIDIA/nvidia-container-toolkit/api/config/v1"
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/discover"
 )
 
@@ -130,9 +131,13 @@ func TestDiscoverModifier(t *testing.T) {
 		},
 	}
 
+	factory := createFactory(
+		WithLogger(logger),
+		WithConfig(&config.Config{}),
+	)
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
-			m, err := NewModifierFromDiscoverer(logger, tc.discover)
+			m, err := factory.newModifierFromDiscoverer(tc.discover)
 			require.NoError(t, err)
 
 			err = m.Modify(tc.spec)

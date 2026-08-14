@@ -45,6 +45,19 @@ func TestAddRuntime(t *testing.T) {
 			expectedError: nil,
 		},
 		{
+			description:  "empty config, set as default runtime",
+			setAsDefault: true,
+			expectedConfig: `
+			[crio]
+			[crio.runtime]
+			default_runtime = "test"
+			[crio.runtime.runtimes.test]
+			runtime_path = "/usr/bin/test"
+			runtime_type = "oci"
+			`,
+			expectedError: nil,
+		},
+		{
 			description: "options from runc are imported",
 			config: `
 			[crio]
@@ -55,10 +68,6 @@ func TestAddRuntime(t *testing.T) {
 			`,
 			expectedConfig: `
 			[crio]
-			[crio.runtime.runtimes.runc]
-			runtime_path = "/usr/bin/runc"
-			runtime_type = "runcoci"
-			runc_option = "option"
 			[crio.runtime.runtimes.test]
 			runtime_path = "/usr/bin/test"
 			runtime_type = "oci"
@@ -79,11 +88,6 @@ func TestAddRuntime(t *testing.T) {
 			expectedConfig: `
 			[crio]
 			[crio.runtime]
-			default_runtime = "default"
-			[crio.runtime.runtimes.default]
-			runtime_path = "/usr/bin/default"
-			runtime_type = "defaultoci"
-			default_option = "option"
 			[crio.runtime.runtimes.test]
 			runtime_path = "/usr/bin/test"
 			runtime_type = "oci"
@@ -108,39 +112,70 @@ func TestAddRuntime(t *testing.T) {
 			expectedConfig: `
 			[crio]
 			[crio.runtime]
-			default_runtime = "default"
-			[crio.runtime.runtimes.default]
-			runtime_path = "/usr/bin/default"
-			runtime_type = "defaultoci"
-			default_option = "option"
-			[crio.runtime.runtimes.runc]
-			runtime_path = "/usr/bin/runc"
-			runtime_type = "runcoci"
-			runc_option = "option"
 			[crio.runtime.runtimes.test]
 			runtime_path = "/usr/bin/test"
 			runtime_type = "oci"
 			default_option = "option"
 			`,
 		},
+		{
+			description:  "runtime already exists in config, default runtime",
+			setAsDefault: true,
+			config: `
+			[crio]
+			[crio.runtime]
+			default_runtime = "test"
+			[crio.runtime.runtimes.test]
+			runtime_path = "/usr/bin/test"
+			runtime_type = "oci"
+			`,
+			expectedConfig: `
+			[crio]
+			[crio.runtime]
+			default_runtime = "test"
+			[crio.runtime.runtimes.test]
+			runtime_path = "/usr/bin/test"
+			runtime_type = "oci"
+			`,
+			expectedError: nil,
+		},
+		{
+			description:  "runtime already exists in config, not default runtime",
+			setAsDefault: false,
+			config: `
+			[crio]
+			[crio.runtime]
+			default_runtime = "test"
+			[crio.runtime.runtimes.test]
+			runtime_path = "/usr/bin/test"
+			runtime_type = "oci"
+			`,
+			expectedConfig: `
+			[crio]
+			[crio.runtime]
+			[crio.runtime.runtimes.test]
+			runtime_path = "/usr/bin/test"
+			runtime_type = "oci"
+			`,
+			expectedError: nil,
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
-			cfg, err := toml.Load(tc.config)
-			require.NoError(t, err)
 			expectedConfig, err := toml.Load(tc.expectedConfig)
 			require.NoError(t, err)
 
-			c := &Config{
-				Logger: logger,
-				Tree:   cfg,
-			}
+			c, err := New(
+				WithLogger(logger),
+				WithConfigSource(toml.FromString(tc.config)),
+			)
+			require.NoError(t, err)
 
 			err = c.AddRuntime("test", "/usr/bin/test", tc.setAsDefault)
 			require.NoError(t, err)
 
-			require.EqualValues(t, expectedConfig.String(), cfg.String())
+			require.EqualValues(t, expectedConfig.String(), c.String())
 		})
 	}
 }
@@ -188,13 +223,11 @@ monitor_path = "/usr/libexec/crio/conmon"
 	}
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
-			cfg, err := toml.Load(config)
+			c, err := New(
+				WithLogger(logger),
+				WithConfigSource(toml.FromString(config)),
+			)
 			require.NoError(t, err)
-
-			c := &Config{
-				Logger: logger,
-				Tree:   cfg,
-			}
 
 			rc, err := c.GetRuntimeConfig(tc.runtime)
 			require.Equal(t, tc.expectedError, err)

@@ -17,6 +17,8 @@
 package test
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -33,10 +35,10 @@ func GetModuleRoot() (string, error) {
 
 // PrependToPath prefixes the specified additional paths to the PATH environment variable
 func PrependToPath(additionalPaths ...string) string {
-	paths := strings.Split(os.Getenv("PATH"), ":")
-	paths = append(additionalPaths, paths...)
-
-	return strings.Join(paths, ":")
+	if currentPath := strings.TrimSpace(os.Getenv("PATH")); currentPath != "" {
+		additionalPaths = append(additionalPaths, currentPath)
+	}
+	return strings.Join(additionalPaths, ":")
 }
 
 func hasGoMod(dir string) (string, error) {
@@ -49,4 +51,21 @@ func hasGoMod(dir string) (string, error) {
 		return hasGoMod(filepath.Dir(dir))
 	}
 	return dir, nil
+}
+
+// Strip root is used to remove the specified root from the string
+// representation of any type.
+func StripRoot[T any](v T, root string) T {
+	stringRep, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	stringRep = bytes.ReplaceAll(stringRep, []byte(root), []byte(""))
+
+	var modified T
+	err = json.Unmarshal(stringRep, &modified)
+	if err != nil {
+		panic(err)
+	}
+	return modified
 }

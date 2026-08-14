@@ -4,50 +4,45 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path"
 	"reflect"
-	"strings"
+	"sync"
 
-	"github.com/NVIDIA/nvidia-container-toolkit/internal/config"
+	"github.com/NVIDIA/nvidia-container-toolkit/api/config/v1"
 	"github.com/NVIDIA/nvidia-container-toolkit/internal/config/image"
-)
-
-const (
-	configPath = "/etc/nvidia-container-runtime/config.toml"
-	driverPath = "/run/nvidia/driver"
+	"github.com/NVIDIA/nvidia-container-toolkit/internal/info"
 )
 
 // hookConfig wraps the toolkit config.
 // This allows for functions to be defined on the local type.
 type hookConfig struct {
+	sync.Mutex
 	*config.Config
+	containerConfig *containerConfig
 }
 
 // loadConfig loads the required paths for the hook config.
 func loadConfig() (*config.Config, error) {
-	var configPaths []string
-	var required bool
-	if len(*configflag) != 0 {
-		configPaths = append(configPaths, *configflag)
-		required = true
-	} else {
-		configPaths = append(configPaths, path.Join(driverPath, configPath), configPath)
+	configFilePath, required := getConfigFilePath()
+	cfg, err := config.New(
+		config.WithConfigFile(configFilePath),
+		config.WithRequired(true),
+	)
+	if err == nil {
+		return cfg.Config()
+	} else if os.IsNotExist(err) && !required {
+		return config.GetDefault()
 	}
+	return nil, fmt.Errorf("couldn't open required configuration file: %v", err)
+}
 
-	for _, p := range configPaths {
-		cfg, err := config.New(
-			config.WithConfigFile(p),
-			config.WithRequired(true),
-		)
-		if err == nil {
-			return cfg.Config()
-		} else if os.IsNotExist(err) && !required {
-			continue
-		}
-		return nil, fmt.Errorf("couldn't open required configuration file: %v", err)
+func getConfigFilePath() (string, bool) {
+	if configFromFlag := *configflag; configFromFlag != "" {
+		return configFromFlag, true
 	}
-
-	return config.GetDefault()
+	if configFromEnvvar := os.Getenv(config.FilePathOverrideEnvVar); configFromEnvvar != "" {
+		return configFromEnvvar, true
+	}
+	return config.GetConfigFilePath(), false
 }
 
 func getHookConfig() (*hookConfig, error) {
@@ -55,7 +50,7 @@ func getHookConfig() (*hookConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %v", err)
 	}
-	config := &hookConfig{cfg}
+	config := &hookConfig{Config: cfg}
 
 	allSupportedDriverCapabilities := image.SupportedDriverCapabilities
 	if config.SupportedDriverCapabilities == "all" {
@@ -73,8 +68,8 @@ func getHookConfig() (*hookConfig, error) {
 
 // getConfigOption returns the toml config option associated with the
 // specified struct field.
-func (c hookConfig) getConfigOption(fieldName string) string {
-	t := reflect.TypeOf(c)
+func (c *hookConfig) getConfigOption(fieldName string) string {
+	t := reflect.TypeOf(&c)
 	f, ok := t.FieldByName(fieldName)
 	if !ok {
 		return fieldName
@@ -86,21 +81,51 @@ func (c hookConfig) getConfigOption(fieldName string) string {
 	return v
 }
 
-// getSwarmResourceEnvvars returns the swarm resource envvars for the config.
-func (c *hookConfig) getSwarmResourceEnvvars() []string {
-	if c.SwarmResource == "" {
-		return nil
+// getSwarmResource returns the swarm resource envvars for the config.
+func (c *hookConfig) getSwarmResource() string {
+	if c == nil {
+		return ""
 	}
+	return c.SwarmResource
+}
 
-	candidates := strings.Split(c.SwarmResource, ",")
-
-	var envvars []string
-	for _, c := range candidates {
-		trimmed := strings.TrimSpace(c)
-		if len(trimmed) > 0 {
-			envvars = append(envvars, trimmed)
+// nvidiaContainerCliCUDACompatModeFlags returns required --cuda-compat-mode
+// flag(s) depending on the hook and runtime configurations.
+func (c *hookConfig) nvidiaContainerCliCUDACompatModeFlags() []string {
+	var flag string
+	switch c.NVIDIAContainerRuntimeConfig.Modes.Legacy.CUDACompatMode {
+	case config.CUDACompatModeLdconfig:
+		flag = "--cuda-compat-mode=ldconfig"
+	case config.CUDACompatModeMount:
+		flag = "--cuda-compat-mode=mount"
+	case config.CUDACompatModeDisabled, config.CUDACompatModeHook:
+		flag = "--cuda-compat-mode=disabled"
+	default:
+		if !c.Features.AllowCUDACompatLibsFromContainer.IsEnabled() {
+			flag = "--cuda-compat-mode=disabled"
 		}
 	}
 
-	return envvars
+	if flag == "" {
+		return nil
+	}
+	return []string{flag}
+}
+
+func (c *hookConfig) assertModeIsLegacy() error {
+	if c.NVIDIAContainerRuntimeHookConfig.SkipModeDetection {
+		return nil
+	}
+
+	mr := info.NewRuntimeModeResolver(
+		info.WithLogger(&logInterceptor{}),
+		info.WithImage(&c.containerConfig.Image),
+		info.WithDefaultMode(info.LegacyRuntimeMode),
+	)
+
+	mode := mr.ResolveRuntimeMode(c.NVIDIAContainerRuntimeConfig.Mode)
+	if mode == "legacy" {
+		return nil
+	}
+	return fmt.Errorf("invoking the NVIDIA Container Runtime Hook directly (e.g. specifying the docker --gpus flag) is not supported. Please use the NVIDIA Container Runtime (e.g. specify the --runtime=nvidia flag) instead")
 }
